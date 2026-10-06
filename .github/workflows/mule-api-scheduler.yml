@@ -4,9 +4,7 @@ run-name: "MuleSoft API Scheduler - ${{ github.event_name == 'schedule' && githu
 
 on:
   schedule:
-    - cron: "0 6 * * *"
-      timezone: "Asia/Kolkata"
-    - cron: "0 18 * * *"
+    - cron: "*/5 * * * *"
       timezone: "Asia/Kolkata"
   workflow_dispatch:
     inputs:
@@ -26,6 +24,12 @@ on:
         type: choice
         default: all
         options: [all, eapi, papi, sapi]
+      region:
+        description: "API region"
+        required: true
+        type: choice
+        default: all
+        options: [all, west, westb, east]
 
 permissions:
   contents: read
@@ -53,6 +57,7 @@ jobs:
       ANYPOINT_ENV: ${{ vars.ANYPOINT_ENVIRONMENT }}
       ANYPOINT_HOST: ${{ vars.ANYPOINT_HOST || 'anypoint.mulesoft.com' }}
       MULE_GROUP: ${{ github.event_name == 'workflow_dispatch' && inputs.group || 'all' }}
+      MULE_REGION: ${{ github.event_name == 'workflow_dispatch' && inputs.region || 'all' }}
 
     steps:
       - name: Checkout repository
@@ -68,13 +73,15 @@ jobs:
           set -euo pipefail
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             action="$MANUAL_ACTION"
-          elif [[ "$SCHEDULE" == "0 6 * * *" ]]; then
-            action="stop"
-          elif [[ "$SCHEDULE" == "0 18 * * *" ]]; then
-            action="start"
           else
-            echo "::error::Unknown schedule: $SCHEDULE"
-            exit 1
+            python3 scripts/schedule_check.py config/schedules.yml
+            action="$(cat /tmp/mule-scheduler-action)"
+            if [[ "$action" == "none" ]]; then
+              echo "No configured lifecycle action is due. Skipping."
+              echo "action=none" >> "$GITHUB_OUTPUT"
+              echo "MULE_ACTION=none" >> "$GITHUB_ENV"
+              exit 0
+            fi
           fi
           echo "action=$action" >> "$GITHUB_OUTPUT"
           echo "MULE_ACTION=$action" >> "$GITHUB_ENV"
@@ -89,11 +96,12 @@ jobs:
               exit 1
             fi
           done
-          for file in config/eapi/apis.txt config/papi/apis.txt config/sapi/apis.txt; do
+          for file in config/eapi/west/apis.txt config/eapi/westb/apis.txt config/eapi/east/apis.txt config/papi/west/apis.txt config/papi/westb/apis.txt config/papi/east/apis.txt config/sapi/west/apis.txt config/sapi/westb/apis.txt config/sapi/east/apis.txt; do
             test -f "$file" || { echo "::error::Missing $file"; exit 1; }
           done
 
       - name: Install Anypoint CLI v4
+        if: env.MULE_ACTION != 'none'
         shell: bash
         run: |
           set -euo pipefail
@@ -101,6 +109,7 @@ jobs:
           anypoint-cli-v4 --version
 
       - name: Verify Connected App authentication
+        if: env.MULE_ACTION != 'none'
         shell: bash
         run: |
           set -euo pipefail
@@ -117,6 +126,7 @@ jobs:
           echo "::notice::${{ matrix.environment }} Connected App authentication successful."
 
       - name: Resolve exact Anypoint environment
+        if: env.MULE_ACTION != 'none'
         shell: bash
         run: |
           set -euo pipefail
@@ -151,7 +161,8 @@ jobs:
           print('Using exact Anypoint environment:', matches[0])
           PY
 
-      - name: Start or stop configured EAPI PAPI SAPI applications
+      - name: Start or stop configured applications
+        if: env.MULE_ACTION != 'none'
         shell: bash
         run: python3 scripts/mule_control.py
 
@@ -166,7 +177,8 @@ jobs:
             echo "|---|---|"
             echo "| Environment | **${{ matrix.environment }}** |"
             echo "| Anypoint environment | **${ANYPOINT_ENV}** |"
-            echo "| API group | **${MULE_GROUP^^}** |"
+            echo "| API group | **${MULE_GROUP^^}** |
+            echo "| Region | **${MULE_REGION^^}** |""
             echo "| Action | **${MULE_ACTION^^}** |"
-            echo "| Schedule | **06:00 IST stop / 18:00 IST start** |"
+            echo "| Schedule | **config/schedules.yml (24-hour IST)** |"
           } >> "$GITHUB_STEP_SUMMARY"
