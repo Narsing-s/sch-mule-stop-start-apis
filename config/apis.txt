@@ -1,9 +1,13 @@
 # Exact CloudHub 2.0 application names to control, one per line.
 # Lines beginning with # are ignored.
 #
-# Example:
+# Option 1 - explicit application allow-list (recommended):
 # integration-with-ai-api
 # monthly-bank-satement-generate-api
 # dream-bank-sapi
 #
-# Keep this list limited to applications that are safe to stop at 06:00 IST.
+# Option 2 - control EVERY CloudHub 2.0 application in the selected environment:
+# ALL
+#
+# IMPORTANT: Do not enable ALL unless every deployed application in this
+# environment is safe to stop at 06:00 IST and start at 18:00 IST.
