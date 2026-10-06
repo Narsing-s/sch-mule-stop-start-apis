@@ -40,7 +40,7 @@ concurrency:
 
 jobs:
   control:
-    name: "${{ matrix.environment }} / ${{ matrix.group }} / ${{ matrix.action }}"
+    name: "${{ matrix.environment }} / ${{ github.event_name == 'workflow_dispatch' && inputs.group || 'all' }} / ${{ github.event_name == 'workflow_dispatch' && inputs.action || 'scheduled' }}"
     if: github.event_name == 'schedule' || matrix.environment == inputs.environment
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -96,7 +96,7 @@ jobs:
               exit 1
             fi
           done
-          for file in config/eapi/west/apis.txt config/eapi/westb/apis.txt config/eapi/east/apis.txt config/papi/west/apis.txt config/papi/westb/apis.txt config/papi/east/apis.txt config/sapi/west/apis.txt config/sapi/westb/apis.txt config/sapi/east/apis.txt; do
+          for file in config/eapi/all/apis.txt config/eapi/west/apis.txt config/eapi/westb/apis.txt config/eapi/east/apis.txt config/papi/all/apis.txt config/papi/west/apis.txt config/papi/westb/apis.txt config/papi/east/apis.txt config/sapi/all/apis.txt config/sapi/west/apis.txt config/sapi/westb/apis.txt config/sapi/east/apis.txt; do
             test -f "$file" || { echo "::error::Missing $file"; exit 1; }
           done
 
