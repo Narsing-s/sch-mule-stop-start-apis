@@ -28,7 +28,7 @@ on:
         required: true
         type: choice
         default: all
-        options: [all, eapi, papi, sapi]
+        options: [all, eapi, papi, sapi, other]
       region:
         description: "API region"
         required: true
@@ -102,7 +102,7 @@ jobs:
               exit 1
             fi
           done
-          for file in config/eapi/all/apis.txt config/eapi/west/apis.txt config/eapi/westb/apis.txt config/eapi/east/apis.txt config/papi/all/apis.txt config/papi/west/apis.txt config/papi/westb/apis.txt config/papi/east/apis.txt config/sapi/all/apis.txt config/sapi/west/apis.txt config/sapi/westb/apis.txt config/sapi/east/apis.txt; do
+          for file in config/eapi/all/apis.txt config/eapi/west/apis.txt config/eapi/westb/apis.txt config/eapi/east/apis.txt config/papi/all/apis.txt config/papi/west/apis.txt config/papi/westb/apis.txt config/papi/east/apis.txt config/sapi/all/apis.txt config/sapi/west/apis.txt config/sapi/westb/apis.txt config/sapi/east/apis.txt config/other/all/apis.txt config/other/west/apis.txt config/other/westb/apis.txt config/other/east/apis.txt; do
             test -f "$file" || { echo "::error::Missing $file"; exit 1; }
           done
 
@@ -183,8 +183,9 @@ jobs:
             echo "|---|---|"
             echo "| Environment | **${{ matrix.environment }}** |"
             echo "| Anypoint environment | **${ANYPOINT_ENV}** |"
-            echo "| API group | **${MULE_GROUP^^}** |
-            echo "| Region | **${MULE_REGION^^}** |""
+            echo "| Business group | **${MULE_BUSINESS_GROUP^^}** |"
+            echo "| API group | **${MULE_GROUP^^}** |"
+            echo "| Region | **${MULE_REGION^^}** |"
             echo "| Action | **${MULE_ACTION^^}** |"
             echo "| Schedule | **config/schedules.yml (24-hour IST)** |"
           } >> "$GITHUB_STEP_SUMMARY"
