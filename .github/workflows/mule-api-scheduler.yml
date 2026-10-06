@@ -5,7 +5,6 @@ run-name: "MuleSoft API Scheduler - ${{ github.event_name == 'schedule' && githu
 on:
   schedule:
     - cron: "*/5 * * * *"
-      timezone: "Asia/Kolkata"
   workflow_dispatch:
     inputs:
       action:
