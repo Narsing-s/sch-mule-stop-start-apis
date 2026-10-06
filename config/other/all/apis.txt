@@ -1,2 +1,1 @@
-# MuleSoft Scheduler API configuration
-# Add one application name per line.
+birthday-notification-api
