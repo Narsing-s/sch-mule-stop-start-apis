@@ -49,7 +49,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [prod, dev, qa, sandbox, design]
+        environment: [sandbox]
         group: [all]
     environment: ${{ matrix.environment }}
     env:
@@ -61,7 +61,7 @@ jobs:
       MULE_GROUP: ${{ github.event_name == 'workflow_dispatch' && inputs.group || 'all' }}
       MULE_BUSINESS_GROUP: ${{ github.event_name == 'workflow_dispatch' && inputs.business_group || 'all' }}
       MULE_REGION: ${{ github.event_name == 'workflow_dispatch' && inputs.region || 'all' }}
-      SELECTED_ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'all' }}
+      SELECTED_ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'sandbox' }}
 
     steps:
       - name: Checkout repository
