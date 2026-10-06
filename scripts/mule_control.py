@@ -119,7 +119,8 @@ def main() -> int:
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(12, max(1, len(applications)))) as executor:
         for future in concurrent.futures.as_completed([executor.submit(control, app, action) for app in applications]):
             app, ok, message = future.result()
-            print(f"[{"OK" if ok else "FAILED"}] [{app.group.upper()}/{app.region.upper()}] {app.name}: {message}", flush=True)
+            status = 'OK' if ok else 'FAILED'
+            print(f'[{status}] [{app.group.upper()}/{app.region.upper()}] {app.name}: {message}', flush=True)
             if not ok: failures += 1
     print(f"Completed: total={len(applications)}, success={len(applications)-failures}, failures={failures}", flush=True)
     return 1 if failures else 0
