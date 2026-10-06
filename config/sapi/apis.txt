@@ -1,0 +1,4 @@
+# SAPI applications to stop at 06:00 IST and start at 18:00 IST.
+# Comma-separated or one application per line is supported.
+# Example:
+# customer-sapi,order-sapi,payment-sapi
