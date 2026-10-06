@@ -1,0 +1,11 @@
+# 24-hour IST schedule. Any minute from 00:00 through 23:59 is valid.
+# Change these times without editing the GitHub Actions workflow.
+timezone: Asia/Kolkata
+
+stop:
+  enabled: true
+  time: "06:00"
+
+start:
+  enabled: true
+  time: "18:00"
