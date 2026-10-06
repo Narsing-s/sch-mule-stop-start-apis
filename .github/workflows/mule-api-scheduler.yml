@@ -1,6 +1,6 @@
 name: MuleSoft API Auto Start Stop
 
-run-name: "MuleSoft ${{ github.event_name == 'schedule' && github.event.schedule || inputs.action }} - ${{ github.event_name == 'schedule' && 'scheduled' || inputs.environment }}"
+run-name: "MuleSoft API Scheduler - ${{ github.event_name == 'schedule' && github.event.schedule || inputs.action }}"
 
 on:
   schedule:
@@ -8,7 +8,6 @@ on:
       timezone: "Asia/Kolkata"
     - cron: "0 18 * * *"
       timezone: "Asia/Kolkata"
-
   workflow_dispatch:
     inputs:
       action:
@@ -17,31 +16,43 @@ on:
         type: choice
         options: [stop, start]
       environment:
-        description: "GitHub Environment containing the Anypoint credentials"
+        description: "Anypoint/GitHub Environment"
         required: true
-        default: prod
-        type: string
+        type: choice
+        options: [prod, dev, qa, sandbox, design]
+      group:
+        description: "API group"
+        required: true
+        type: choice
+        default: all
+        options: [all, eapi, papi, sapi]
 
 permissions:
   contents: read
 
 concurrency:
-  group: mule-api-scheduler-${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'scheduled-prod' }}
+  group: mule-api-scheduler-${{ matrix.environment }}
   cancel-in-progress: false
 
 jobs:
   control:
-    name: MuleSoft API lifecycle control
+    name: "${{ matrix.environment }} / ${{ matrix.group }} / ${{ matrix.action }}"
+    if: github.event_name == 'schedule' || matrix.environment == inputs.environment
     runs-on: ubuntu-latest
-    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'prod' }}
     timeout-minutes: 30
-
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [prod, dev, qa, sandbox, design]
+        group: [all]
+    environment: ${{ matrix.environment }}
     env:
       ANYPOINT_CLIENT_ID: ${{ secrets.ANYPOINT_CLIENT_ID }}
       ANYPOINT_CLIENT_SECRET: ${{ secrets.ANYPOINT_CLIENT_SECRET }}
       ANYPOINT_ORG: ${{ secrets.ANYPOINT_ORG_ID }}
       ANYPOINT_ENV: ${{ vars.ANYPOINT_ENVIRONMENT }}
       ANYPOINT_HOST: ${{ vars.ANYPOINT_HOST || 'anypoint.mulesoft.com' }}
+      MULE_GROUP: ${{ github.event_name == 'workflow_dispatch' && inputs.group || 'all' }}
 
     steps:
       - name: Checkout repository
@@ -68,20 +79,19 @@ jobs:
           echo "action=$action" >> "$GITHUB_OUTPUT"
           echo "MULE_ACTION=$action" >> "$GITHUB_ENV"
 
-      - name: Validate configuration
+      - name: Validate credentials and configuration
         shell: bash
         run: |
           set -euo pipefail
           for name in ANYPOINT_CLIENT_ID ANYPOINT_CLIENT_SECRET ANYPOINT_ORG ANYPOINT_ENV; do
             if [[ -z "${!name:-}" ]]; then
-              echo "::error::Missing $name. Configure it in the selected GitHub Environment."
+              echo "::error::Missing $name in GitHub Environment '${{ matrix.environment }}'."
               exit 1
             fi
           done
-          if ! grep -Ev '^[[:space:]]*(#|$)' config/apis.txt | grep -q .; then
-            echo "::error::config/apis.txt has no active application names."
-            exit 1
-          fi
+          for file in config/eapi/apis.txt config/papi/apis.txt config/sapi/apis.txt; do
+            test -f "$file" || { echo "::error::Missing $file"; exit 1; }
+          done
 
       - name: Install Anypoint CLI v4
         shell: bash
@@ -94,36 +104,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          response="$(
-            curl -sS -w '\n%{http_code}' \
-              -X POST "https://${ANYPOINT_HOST}/accounts/api/v2/oauth2/token" \
-              -H "Content-Type: application/x-www-form-urlencoded" \
-              --data-urlencode "client_id=${ANYPOINT_CLIENT_ID}" \
-              --data-urlencode "client_secret=${ANYPOINT_CLIENT_SECRET}" \
-              --data-urlencode "grant_type=client_credentials"
-          )"
+          response="$(curl -sS -w '\n%{http_code}' -X POST "https://${ANYPOINT_HOST}/accounts/api/v2/oauth2/token" -H "Content-Type: application/x-www-form-urlencoded" --data-urlencode "grant_type=client_credentials" --data-urlencode "client_id=${ANYPOINT_CLIENT_ID}" --data-urlencode "client_secret=${ANYPOINT_CLIENT_SECRET}")"
           status="$(printf '%s\n' "$response" | tail -n1)"
           body="$(printf '%s\n' "$response" | sed '$d')"
           if [[ "$status" != "200" ]]; then
             message="$(printf '%s' "$body" | jq -r '.error_description // .message // .error // empty' 2>/dev/null || true)"
-            echo "::error::Connected App authentication failed: HTTP $status $message"
+            echo "::error::${{ matrix.environment }} Connected App authentication failed: HTTP $status $message"
             exit 1
           fi
           token="$(printf '%s' "$body" | jq -r '.access_token // empty')"
           [[ -n "$token" ]] || { echo "::error::No access_token returned."; exit 1; }
-          echo "::notice::Connected App authentication successful."
+          echo "::notice::${{ matrix.environment }} Connected App authentication successful."
 
-      - name: Verify target environment
+      - name: Resolve exact Anypoint environment
         shell: bash
         run: |
           set -euo pipefail
-          anypoint-cli-v4 account:environment:list --output json >/tmp/environments.json
-          python3 - <<'PY'
-          import json, os
-          target = os.environ["ANYPOINT_ENV"].strip().lower()
-          with open("/tmp/environments.json", encoding="utf-8") as f:
+          env -u ANYPOINT_ENV anypoint-cli-v4 account:environment:list --output json > /tmp/environments.json
+          python3 - "$GITHUB_ENV" "${{ matrix.environment }}" /tmp/environments.json <<'PY'
+          import json, sys
+          target = sys.argv[2].strip().lower()
+          with open(sys.argv[3], encoding='utf-8') as f:
               data = json.load(f)
-          names = set()
+          names, seen = [], set()
           def walk(v):
               if isinstance(v, dict):
                   yield v
@@ -131,15 +134,24 @@ jobs:
               elif isinstance(v, list):
                   for x in v: yield from walk(x)
           for obj in walk(data):
-              for key in ("name", "environmentName"):
+              for key in ('name', 'environmentName'):
                   value = obj.get(key)
-                  if value: names.add(str(value).strip().lower())
-          if target not in names:
-              raise SystemExit(f"Anypoint environment '{os.environ['ANYPOINT_ENV']}' is not visible to the Connected App.")
-          print(f"Verified Anypoint environment: {os.environ['ANYPOINT_ENV']}")
+                  if value:
+                      name = str(value).strip()
+                      if name and name.lower() not in seen:
+                          seen.add(name.lower()); names.append(name)
+          matches = [n for n in names if n.lower() == target]
+          if not matches:
+              print(f"::error::Anypoint environment '{sys.argv[2]}' is not visible to this Connected App.")
+              print('Visible environments:')
+              for n in names: print('  - ' + n)
+              raise SystemExit(2)
+          with open(sys.argv[1], 'a', encoding='utf-8') as f:
+              f.write('ANYPOINT_ENV=' + matches[0] + '\n')
+          print('Using exact Anypoint environment:', matches[0])
           PY
 
-      - name: Start or stop configured MuleSoft APIs
+      - name: Start or stop configured EAPI PAPI SAPI applications
         shell: bash
         run: python3 scripts/mule_control.py
 
@@ -150,10 +162,11 @@ jobs:
           {
             echo "## MuleSoft API Scheduler"
             echo ""
-            echo "- Action: ${{ steps.action.outputs.action }}"
-            echo "- Anypoint environment: ${ANYPOINT_ENV}"
-            echo "- Schedule: 06:00 IST stop / 18:00 IST start"
-            echo ""
-            echo "Target applications:"
-            grep -Ev '^[[:space:]]*(#|$)' config/apis.txt | sed 's/^/- /'
+            echo "| Setting | Value |"
+            echo "|---|---|"
+            echo "| Environment | **${{ matrix.environment }}** |"
+            echo "| Anypoint environment | **${ANYPOINT_ENV}** |"
+            echo "| API group | **${MULE_GROUP^^}** |"
+            echo "| Action | **${MULE_ACTION^^}** |"
+            echo "| Schedule | **06:00 IST stop / 18:00 IST start** |"
           } >> "$GITHUB_STEP_SUMMARY"
