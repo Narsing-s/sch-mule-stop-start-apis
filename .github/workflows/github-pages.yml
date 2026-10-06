@@ -1,4 +1,5 @@
 name: Deploy Scheduler UI to GitHub Pages
+# UI files are published from ui/ into the Pages artifact root.
 
 on:
   push:
