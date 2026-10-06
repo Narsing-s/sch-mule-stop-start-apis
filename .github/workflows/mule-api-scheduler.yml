@@ -184,6 +184,7 @@ jobs:
             echo "| Environment | **${{ matrix.environment }}** |"
             echo "| Anypoint environment | **${ANYPOINT_ENV}** |"
             echo "| Business group | **${MULE_BUSINESS_GROUP^^}** |"
+            echo "| Business group | **${MULE_BUSINESS_GROUP^^}** |"
             echo "| API group | **${MULE_GROUP^^}** |"
             echo "| Region | **${MULE_REGION^^}** |"
             echo "| Action | **${MULE_ACTION^^}** |"
