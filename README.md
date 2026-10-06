@@ -23,7 +23,7 @@ monthly-bank-satement-generate-api
 dream-bank-sapi
 ```
 
-Only add applications that are safe to stop at 06:00 IST and start at 18:00 IST.
+Only add applications that are safe to stop at 06:00 IST and start at 18:00 IST. If you intentionally want every application in the selected environment controlled, put `ALL` on its own active line instead; this is an explicit opt-in and should only be used when every application is safe to stop.
 
 ## GitHub Environment
 
