@@ -39,12 +39,11 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: mule-api-scheduler-${{ matrix.environment }}
-  cancel-in-progress: false
-
 jobs:
   control:
+    concurrency:
+      group: mule-api-scheduler-${{ matrix.environment }}
+      cancel-in-progress: false
     name: "${{ matrix.environment }} / ${{ github.event_name == 'workflow_dispatch' && inputs.group || 'all' }} / ${{ github.event_name == 'workflow_dispatch' && inputs.action || 'scheduled' }}"
     if: github.event_name == 'schedule' || matrix.environment == inputs.environment
     runs-on: ubuntu-latest
@@ -183,8 +182,7 @@ jobs:
             echo "|---|---|"
             echo "| Environment | **${{ matrix.environment }}** |"
             echo "| Anypoint environment | **${ANYPOINT_ENV}** |"
-            echo "| Business group | **${MULE_BUSINESS_GROUP^^}** |"
-            echo "| Business group | **${MULE_BUSINESS_GROUP^^}** |"
+            echo "| Business group | **${MULE_BUSINESS_GROUP^^}** |
             echo "| API group | **${MULE_GROUP^^}** |"
             echo "| Region | **${MULE_REGION^^}** |"
             echo "| Action | **${MULE_ACTION^^}** |"
