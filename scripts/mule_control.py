@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Start/stop selected CloudHub 2.0 applications through Anypoint CLI."""
+"""Start/stop selected CloudHub 2.0 applications grouped as EAPI/PAPI/SAPI."""
 
 from __future__ import annotations
 
@@ -12,15 +12,15 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-CONFIG = Path("config/apis.txt")
+GROUPS = ("eapi", "papi", "sapi")
 POLL_SECONDS = int(os.getenv("MULE_POLL_SECONDS", "10"))
 TIMEOUT_SECONDS = int(os.getenv("MULE_TIMEOUT_SECONDS", "1200"))
 
 @dataclass(frozen=True)
 class Application:
+    group: str
     name: str
     app_id: str
-    current_status: str = "UNKNOWN"
 
 def cli(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["anypoint-cli-v4", *args], text=True, capture_output=True, check=False)
@@ -41,7 +41,7 @@ def walk(value: object):
             yield from walk(child)
 
 def values_for_key(value: object, wanted_key: str) -> list[str]:
-    found: list[str] = []
+    found = []
     for obj in walk(value):
         if isinstance(obj, dict):
             for key, child in obj.items():
@@ -49,22 +49,26 @@ def values_for_key(value: object, wanted_key: str) -> list[str]:
                     found.append(str(child).strip().upper())
     return found
 
-def load_targets() -> list[str]:
-    if not CONFIG.exists():
-        raise RuntimeError(f"Missing {CONFIG}")
-    names: list[str] = []
-    for raw in CONFIG.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line not in names:
-            names.append(line)
-    if not names:
-        raise RuntimeError(
-            f"{CONFIG} contains no active application names. "
-            "Add exact CloudHub 2.0 application names or use ALL."
-        )
-    return names
+def load_targets(selected_group: str) -> list[tuple[str, str]]:
+    groups = GROUPS if selected_group == "all" else (selected_group,)
+    targets = []
+    for group in groups:
+        config = Path("config") / group / "apis.txt"
+        if not config.exists():
+            raise RuntimeError(f"Missing group configuration: {config}")
+        for raw in config.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            for item in line.split(","):
+                name = item.strip()
+                if name and not name.startswith("#"):
+                    pair = (group, name)
+                    if pair not in targets:
+                        targets.append(pair)
+    if not targets:
+        raise RuntimeError(f"No active applications configured for group '{selected_group}'.")
+    return targets
 
 def list_applications() -> list[Application]:
     result = cli("runtime-mgr:application:list", "--output", "json")
@@ -72,7 +76,7 @@ def list_applications() -> list[Application]:
         detail = (result.stderr or result.stdout).strip()
         raise RuntimeError(f"application list failed: {detail}")
     payload = parse_json(result.stdout)
-    apps: dict[str, Application] = {}
+    apps = {}
     for obj in walk(payload):
         if not isinstance(obj, dict):
             continue
@@ -80,29 +84,22 @@ def list_applications() -> list[Application]:
         app_id = obj.get("id") or obj.get("applicationId")
         if name is None or app_id is None:
             continue
-        name = str(name).strip()
-        app_id = str(app_id).strip()
-        status = str(obj.get("status") or obj.get("applicationStatus") or "UNKNOWN").upper()
+        name, app_id = str(name).strip(), str(app_id).strip()
         if name and app_id:
-            apps[name.lower()] = Application(name, app_id, status)
+            apps[name.lower()] = Application("", name, app_id)
     return list(apps.values())
 
-def resolve_targets(requested_names: list[str]) -> list[Application]:
+def resolve_targets(requested: list[tuple[str, str]]) -> list[Application]:
     available = list_applications()
-
-    if any(name.upper() == "ALL" for name in requested_names):
-        return sorted(available, key=lambda x: x.name.lower())
-
     by_name = {app.name.lower(): app for app in available}
     by_id = {app.app_id: app for app in available}
-    resolved: list[Application] = []
-    missing: list[str] = []
-    for requested in requested_names:
-        app = by_name.get(requested.lower()) or by_id.get(requested)
+    resolved, missing = [], []
+    for group, name in requested:
+        app = by_name.get(name.lower()) or by_id.get(name)
         if not app:
-            missing.append(requested)
-        elif app not in resolved:
-            resolved.append(app)
+            missing.append(f"{group}:{name}")
+            continue
+        resolved.append(Application(group, app.name, app.app_id))
     if missing:
         print("Available applications visible in the selected environment:", file=sys.stderr)
         for app in sorted(available, key=lambda x: x.name.lower()):
@@ -119,66 +116,59 @@ def describe_state(app_id: str) -> tuple[str, str]:
     desired = values_for_key(payload, "desiredState")
     desired_state = desired[0] if desired else "UNKNOWN"
     deployment_state = "UNKNOWN"
-    candidates: list[str] = []
     for key in ("status", "deploymentStatus", "state"):
-        candidates.extend(values_for_key(payload, key))
-    for candidate in candidates:
-        if candidate in {"APPLIED", "APPLYING", "FAILED", "DELETED"}:
-            deployment_state = candidate
+        for candidate in values_for_key(payload, key):
+            if candidate in {"APPLIED", "APPLYING", "FAILED", "DELETED"}:
+                deployment_state = candidate
+                break
+        if deployment_state != "UNKNOWN":
             break
     return desired_state, deployment_state
 
-def wait_for_target(app: Application, target: str) -> tuple[bool, str, str]:
-    deadline = time.monotonic() + TIMEOUT_SECONDS
-    while time.monotonic() < deadline:
-        try:
-            desired, deployment = describe_state(app.app_id)
-        except RuntimeError as exc:
-            print(f"[WARN] {app.name}: {exc}", flush=True)
-            time.sleep(POLL_SECONDS)
-            continue
-        print(f"{app.name} => deployment={deployment}, desired={desired}", flush=True)
-        if desired == target and deployment not in {"APPLYING", "FAILED"}:
-            return True, desired, deployment
-        if deployment == "FAILED":
-            return False, desired, deployment
-        time.sleep(POLL_SECONDS)
-    desired, deployment = describe_state(app.app_id)
-    return False, desired, deployment
-
-def control(app: Application, action: str) -> tuple[str, bool, str]:
+def control(app: Application, action: str) -> tuple[Application, bool, str]:
     target = "STARTED" if action == "start" else "STOPPED"
     command = "runtime-mgr:application:start" if action == "start" else "runtime-mgr:application:stop"
+    deadline = time.monotonic() + TIMEOUT_SECONDS
     try:
-        desired, deployment = describe_state(app.app_id)
-        if desired == target and deployment != "APPLYING":
-            return app.name, True, f"already {desired}/{deployment}"
-        result = cli(command, app.app_id)
-        output = (result.stdout or "").strip()
-        error = (result.stderr or "").strip()
-        if result.returncode != 0:
-            return app.name, False, error or output or f"{command} failed"
-        print(f"[ACTION] {app.name}: {action} submitted", flush=True)
-        ok, final_desired, final_deployment = wait_for_target(app, target)
-        if ok:
-            return app.name, True, f"{final_desired}/{final_deployment}"
-        return app.name, False, f"did not reach {target}: {final_desired}/{final_deployment}"
+        while True:
+            desired, deployment = describe_state(app.app_id)
+            print(f"[{app.group.upper()}] {app.name} => deployment={deployment}, desired={desired}", flush=True)
+            if desired == target and deployment == "APPLIED":
+                return app, True, f"{desired}/{deployment}"
+            if deployment == "FAILED":
+                return app, False, f"deployment failed while targeting {target}"
+            if desired != target:
+                result = cli(command, app.app_id)
+                if result.returncode != 0:
+                    detail = (result.stderr or result.stdout).strip()
+                    print(f"[WARN] {app.name}: {detail}", flush=True)
+                else:
+                    print(f"[ACTION] [{app.group.upper()}] {action} submitted for {app.name}", flush=True)
+            if time.monotonic() >= deadline:
+                desired, deployment = describe_state(app.app_id)
+                return app, False, f"timeout: {desired}/{deployment}; target={target}"
+            time.sleep(POLL_SECONDS)
     except Exception as exc:
-        return app.name, False, str(exc)
+        return app, False, str(exc)
 
 def main() -> int:
     action = os.getenv("MULE_ACTION", "").strip().lower()
+    group = os.getenv("MULE_GROUP", "all").strip().lower()
     if action not in {"start", "stop"}:
         print("MULE_ACTION must be 'start' or 'stop'.", file=sys.stderr)
         return 2
-    applications = resolve_targets(load_targets())
-    print(f"Controlling {len(applications)} application(s) with action={action}.", flush=True)
+    if group not in (*GROUPS, "all"):
+        print("MULE_GROUP must be eapi, papi, sapi, or all.", file=sys.stderr)
+        return 2
+    requested = load_targets(group)
+    applications = resolve_targets(requested)
+    print(f"Controlling {len(applications)} application(s): group={group}, action={action}", flush=True)
     failures = 0
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, max(1, len(applications)))) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(12, max(1, len(applications)))) as executor:
         futures = [executor.submit(control, app, action) for app in applications]
         for future in concurrent.futures.as_completed(futures):
-            name, ok, message = future.result()
-            print(f"[{'OK' if ok else 'FAILED'}] {name}: {message}", flush=True)
+            app, ok, message = future.result()
+            print(f"[{'OK' if ok else 'FAILED'}] [{app.group.upper()}] {app.name}: {message}", flush=True)
             if not ok:
                 failures += 1
     print(f"Completed: total={len(applications)}, success={len(applications)-failures}, failures={failures}", flush=True)
