@@ -1,0 +1,9 @@
+# Exact CloudHub 2.0 application names to control, one per line.
+# Lines beginning with # are ignored.
+#
+# Example:
+# integration-with-ai-api
+# monthly-bank-satement-generate-api
+# dream-bank-sapi
+#
+# Keep this list limited to applications that are safe to stop at 06:00 IST.
