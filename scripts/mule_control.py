@@ -9,7 +9,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-GROUPS = ("eapi", "papi", "sapi")
+GROUPS = ("eapi", "papi", "sapi", "other")
 REGIONS = ("west", "westb", "east")
 POLL_SECONDS = int(os.getenv("MULE_POLL_SECONDS", "10"))
 TIMEOUT_SECONDS = int(os.getenv("MULE_TIMEOUT_SECONDS", "1200"))
@@ -121,7 +121,7 @@ def main() -> int:
     group = os.getenv("MULE_GROUP", "all").strip().lower()
     region = os.getenv("MULE_REGION", "all").strip().lower()
     if action not in {"start", "stop"}: print("MULE_ACTION must be start or stop.", file=sys.stderr); return 2
-    if group not in (*GROUPS, "all"): print("MULE_GROUP must be eapi, papi, sapi, or all.", file=sys.stderr); return 2
+    if group not in (*GROUPS, "all"): print("MULE_GROUP must be eapi, papi, sapi, other, or all.", file=sys.stderr); return 2
     if region not in (*REGIONS, "all"): print("MULE_REGION must be west, westb, east, or all.", file=sys.stderr); return 2
     applications = resolve_targets(load_targets(group, region))
     failures = 0
