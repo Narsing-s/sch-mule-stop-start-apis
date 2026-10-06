@@ -16,7 +16,7 @@ on:
         description: "Anypoint/GitHub Environment"
         required: true
         type: choice
-        options: [prod, dev, qa, sandbox, design]
+        options: [sandbox]
       business_group:
         description: "Business group"
         required: true
@@ -61,7 +61,7 @@ jobs:
       MULE_GROUP: ${{ github.event_name == 'workflow_dispatch' && inputs.group || 'all' }}
       MULE_BUSINESS_GROUP: ${{ github.event_name == 'workflow_dispatch' && inputs.business_group || 'all' }}
       MULE_REGION: ${{ github.event_name == 'workflow_dispatch' && inputs.region || 'all' }}
-      SELECTED_ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'sandbox' }}
+      SELECTED_ENVIRONMENT: sandbox
 
     steps:
       - name: Checkout repository
@@ -76,14 +76,12 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            if [[ "$SELECTED_ENVIRONMENT" != "all" && "$SELECTED_ENVIRONMENT" != "${{ matrix.environment }}" ]]; then
-              echo "Environment ${{ matrix.environment }} is not selected; skipping this matrix entry."
-              echo "action=none" >> "$GITHUB_OUTPUT"
-              echo "MULE_ACTION=none" >> "$GITHUB_ENV"
-              exit 0
-            fi
             action="$MANUAL_ACTION"
           else
+            echo "Checking configured schedule using IST..."
+            date -u
+            TZ=Asia/Kolkata date
+            cat config/schedules.yml
             python3 scripts/schedule_check.py config/schedules.yml
             action="$(cat /tmp/mule-scheduler-action)"
             if [[ "$action" == "none" ]]; then
@@ -191,5 +189,5 @@ jobs:
             echo "| API group | **${MULE_GROUP^^}** |"
             echo "| Region | **${MULE_REGION^^}** |"
             echo "| Action | **${MULE_ACTION^^}** |"
-            echo "| Schedule | **config/schedules.yml (24-hour IST)** |"
+            echo "| Schedule | **config/schedules.yml (24-hour IST)** |\n            echo "| Scheduler | **5-minute GitHub Actions polling; sandbox only** |"
           } >> "$GITHUB_STEP_SUMMARY"
