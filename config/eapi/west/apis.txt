@@ -1,0 +1,2 @@
+# EAPI applications for West region.
+# One application name per line.
