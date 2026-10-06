@@ -39,20 +39,32 @@ def values_for_key(value: object, wanted_key: str) -> list[str]:
     return found
 def load_targets(selected_group: str, selected_region: str) -> list[tuple[str, str, str]]:
     groups = GROUPS if selected_group == "all" else (selected_group,)
-    regions = REGIONS if selected_region == "all" else (selected_region,)
+    requested_regions = REGIONS if selected_region == "all" else (selected_region,)
     targets = []
     for group in groups:
-        for region in regions:
-            config = Path("config") / group / region / "apis.txt"
-            if not config.exists(): raise RuntimeError(f"Missing regional configuration: {config}")
-            for raw in config.read_text(encoding="utf-8").splitlines():
-                line = raw.strip()
-                if not line or line.startswith("#"): continue
-                for item in line.split(","):
-                    name = item.strip()
-                    if name and not name.startswith("#") and (group, region, name) not in targets: targets.append((group, region, name))
-    if not targets: raise RuntimeError(f"No active applications configured for group={selected_group}, region={selected_region}.")
+        config = Path("config") / group / "apis.txt"
+        if not config.exists():
+            raise RuntimeError(f"Missing API configuration: {config}")
+        for raw in config.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or ":" not in line:
+                continue
+            region_name, apps_text = line.split(":", 1)
+            region_name = region_name.strip().lower()
+            if region_name not in {"all", *REGIONS}:
+                continue
+            applicable = REGIONS if region_name == "all" else (region_name,)
+            for region in applicable:
+                if region not in requested_regions:
+                    continue
+                for item in apps_text.split(","):
+                    name = item.split("#", 1)[0].strip()
+                    if name and (group, region, name) not in targets:
+                        targets.append((group, region, name))
+    if not targets:
+        raise RuntimeError(f"No active applications configured for group={selected_group}, region={selected_region}.")
     return targets
+
 def list_applications() -> list[Application]:
     result = cli("runtime-mgr:application:list", "--output", "json")
     if result.returncode != 0: raise RuntimeError(f"application list failed: {(result.stderr or result.stdout).strip()}")
