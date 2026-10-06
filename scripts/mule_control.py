@@ -62,7 +62,7 @@ def load_targets() -> list[str]:
     if not names:
         raise RuntimeError(
             f"{CONFIG} contains no active application names. "
-            "Add the exact CloudHub 2.0 application names before scheduling."
+            "Add exact CloudHub 2.0 application names or use ALL."
         )
     return names
 
@@ -89,6 +89,10 @@ def list_applications() -> list[Application]:
 
 def resolve_targets(requested_names: list[str]) -> list[Application]:
     available = list_applications()
+
+    if any(name.upper() == "ALL" for name in requested_names):
+        return sorted(available, key=lambda x: x.name.lower())
+
     by_name = {app.name.lower(): app for app in available}
     by_id = {app.app_id: app for app in available}
     resolved: list[Application] = []
