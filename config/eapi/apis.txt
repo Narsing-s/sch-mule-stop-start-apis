@@ -1,0 +1,14 @@
+# One application per line or comma-separated.
+# Put applications that run in every region under "all:".
+# Region-specific applications can be listed under west, westb, or east.
+#
+# Example:
+# all: shared-api-one, shared-api-two
+# west: west-only-api
+# westb: westb-only-api
+# east: east-only-api
+
+all:
+west:
+westb:
+east:
