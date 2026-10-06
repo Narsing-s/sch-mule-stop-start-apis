@@ -1,0 +1,159 @@
+name: MuleSoft API Auto Start Stop
+
+run-name: "MuleSoft ${{ github.event_name == 'schedule' && github.event.schedule || inputs.action }} - ${{ github.event_name == 'schedule' && 'scheduled' || inputs.environment }}"
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+      timezone: "Asia/Kolkata"
+    - cron: "0 18 * * *"
+      timezone: "Asia/Kolkata"
+
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "MuleSoft application lifecycle action"
+        required: true
+        type: choice
+        options: [stop, start]
+      environment:
+        description: "GitHub Environment containing the Anypoint credentials"
+        required: true
+        default: prod
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mule-api-scheduler-${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'scheduled-prod' }}
+  cancel-in-progress: false
+
+jobs:
+  control:
+    name: MuleSoft API lifecycle control
+    runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'prod' }}
+    timeout-minutes: 30
+
+    env:
+      ANYPOINT_CLIENT_ID: ${{ secrets.ANYPOINT_CLIENT_ID }}
+      ANYPOINT_CLIENT_SECRET: ${{ secrets.ANYPOINT_CLIENT_SECRET }}
+      ANYPOINT_ORG: ${{ secrets.ANYPOINT_ORG_ID }}
+      ANYPOINT_ENV: ${{ vars.ANYPOINT_ENVIRONMENT }}
+      ANYPOINT_HOST: ${{ vars.ANYPOINT_HOST || 'anypoint.mulesoft.com' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve scheduled action
+        id: action
+        shell: bash
+        env:
+          MANUAL_ACTION: ${{ inputs.action }}
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            action="$MANUAL_ACTION"
+          elif [[ "$SCHEDULE" == "0 6 * * *" ]]; then
+            action="stop"
+          elif [[ "$SCHEDULE" == "0 18 * * *" ]]; then
+            action="start"
+          else
+            echo "::error::Unknown schedule: $SCHEDULE"
+            exit 1
+          fi
+          echo "action=$action" >> "$GITHUB_OUTPUT"
+          echo "MULE_ACTION=$action" >> "$GITHUB_ENV"
+
+      - name: Validate configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in ANYPOINT_CLIENT_ID ANYPOINT_CLIENT_SECRET ANYPOINT_ORG ANYPOINT_ENV; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing $name. Configure it in the selected GitHub Environment."
+              exit 1
+            fi
+          done
+          if ! grep -Ev '^[[:space:]]*(#|$)' config/apis.txt | grep -q .; then
+            echo "::error::config/apis.txt has no active application names."
+            exit 1
+          fi
+
+      - name: Install Anypoint CLI v4
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global anypoint-cli-v4-public
+          anypoint-cli-v4 --version
+
+      - name: Verify Connected App authentication
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(
+            curl -sS -w '\n%{http_code}' \
+              -X POST "https://${ANYPOINT_HOST}/accounts/api/v2/oauth2/token" \
+              -H "Content-Type: application/x-www-form-urlencoded" \
+              --data-urlencode "client_id=${ANYPOINT_CLIENT_ID}" \
+              --data-urlencode "client_secret=${ANYPOINT_CLIENT_SECRET}" \
+              --data-urlencode "grant_type=client_credentials"
+          )"
+          status="$(printf '%s\n' "$response" | tail -n1)"
+          body="$(printf '%s\n' "$response" | sed '$d')"
+          if [[ "$status" != "200" ]]; then
+            message="$(printf '%s' "$body" | jq -r '.error_description // .message // .error // empty' 2>/dev/null || true)"
+            echo "::error::Connected App authentication failed: HTTP $status $message"
+            exit 1
+          fi
+          token="$(printf '%s' "$body" | jq -r '.access_token // empty')"
+          [[ -n "$token" ]] || { echo "::error::No access_token returned."; exit 1; }
+          echo "::notice::Connected App authentication successful."
+
+      - name: Verify target environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          anypoint-cli-v4 account:environment:list --output json >/tmp/environments.json
+          python3 - <<'PY'
+          import json, os
+          target = os.environ["ANYPOINT_ENV"].strip().lower()
+          with open("/tmp/environments.json", encoding="utf-8") as f:
+              data = json.load(f)
+          names = set()
+          def walk(v):
+              if isinstance(v, dict):
+                  yield v
+                  for x in v.values(): yield from walk(x)
+              elif isinstance(v, list):
+                  for x in v: yield from walk(x)
+          for obj in walk(data):
+              for key in ("name", "environmentName"):
+                  value = obj.get(key)
+                  if value: names.add(str(value).strip().lower())
+          if target not in names:
+              raise SystemExit(f"Anypoint environment '{os.environ['ANYPOINT_ENV']}' is not visible to the Connected App.")
+          print(f"Verified Anypoint environment: {os.environ['ANYPOINT_ENV']}")
+          PY
+
+      - name: Start or stop configured MuleSoft APIs
+        shell: bash
+        run: python3 scripts/mule_control.py
+
+      - name: Publish execution summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## MuleSoft API Scheduler"
+            echo ""
+            echo "- Action: ${{ steps.action.outputs.action }}"
+            echo "- Anypoint environment: ${ANYPOINT_ENV}"
+            echo "- Schedule: 06:00 IST stop / 18:00 IST start"
+            echo ""
+            echo "Target applications:"
+            grep -Ev '^[[:space:]]*(#|$)' config/apis.txt | sed 's/^/- /'
+          } >> "$GITHUB_STEP_SUMMARY"
