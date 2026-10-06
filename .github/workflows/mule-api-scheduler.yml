@@ -50,7 +50,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: ${{ fromJSON(github.event_name == 'schedule' && '["prod","dev","qa","sandbox","design"]' || format('["{0}"]', inputs.environment)) }}
+        environment: [prod, dev, qa, sandbox, design]
         group: [all]
     environment: ${{ matrix.environment }}
     env:
@@ -62,6 +62,7 @@ jobs:
       MULE_GROUP: ${{ github.event_name == 'workflow_dispatch' && inputs.group || 'all' }}
       MULE_BUSINESS_GROUP: ${{ github.event_name == 'workflow_dispatch' && inputs.business_group || 'all' }}
       MULE_REGION: ${{ github.event_name == 'workflow_dispatch' && inputs.region || 'all' }}
+      SELECTED_ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'all' }}
 
     steps:
       - name: Checkout repository
@@ -76,6 +77,12 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            if [[ "$SELECTED_ENVIRONMENT" != "all" && "$SELECTED_ENVIRONMENT" != "${{ matrix.environment }}" ]]; then
+              echo "Environment ${{ matrix.environment }} is not selected; skipping this matrix entry."
+              echo "action=none" >> "$GITHUB_OUTPUT"
+              echo "MULE_ACTION=none" >> "$GITHUB_ENV"
+              exit 0
+            fi
             action="$MANUAL_ACTION"
           else
             python3 scripts/schedule_check.py config/schedules.yml
