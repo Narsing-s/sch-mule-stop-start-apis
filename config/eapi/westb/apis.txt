@@ -1,0 +1,2 @@
+# Comma-separated or one-per-line CloudHub 2.0 application names for this region.
+# Example: app-one,app-two,app-three
