@@ -1,0 +1,2 @@
+# MuleSoft Scheduler API configuration
+# Add one application name per line.
