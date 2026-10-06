@@ -1,66 +1,91 @@
 # MuleSoft API Auto Start / Stop Scheduler
 
-Automates CloudHub 2.0 Mule application lifecycle management from GitHub Actions.
+Automatically starts and stops selected CloudHub 2.0 Mule applications using GitHub Actions.
 
-## Schedule
+## Automatic schedule
 
-| IST time | Action |
-|---|---|
-| **06:00 AM** | Stop configured MuleSoft APIs |
-| **06:00 PM** | Start configured MuleSoft APIs |
+| India time (IST) | Action | Environments |
+|---|---|---|
+| **06:00 AM** | Stop | prod, dev, qa, sandbox, design |
+| **06:00 PM** | Start | prod, dev, qa, sandbox, design |
 
-The workflow uses the Asia/Kolkata timezone.
+The workflow uses the GitHub Actions `Asia/Kolkata` timezone. Scheduled runs can occasionally be delayed by GitHub platform load.
 
-## Configure targets
+## API groups
 
-Edit `config/apis.txt` and add the exact CloudHub 2.0 application names, one per line.
+Applications are separated into:
 
-Example:
+- `config/eapi/apis.txt` — EAPI
+- `config/papi/apis.txt` — PAPI
+- `config/sapi/apis.txt` — SAPI
+
+Paste comma-separated application names and save/commit:
 
 ```text
-integration-with-ai-api
-monthly-bank-satement-generate-api
-dream-bank-sapi
+customer-eapi,order-eapi,payment-eapi
 ```
 
-Only add applications that are safe to stop at 06:00 IST and start at 18:00 IST. If you intentionally want every application in the selected environment controlled, put `ALL` on its own active line instead; this is an explicit opt-in and should only be used when every application is safe to stop.
+One name per line is also supported. Comments and blank lines are ignored and duplicates are removed.
 
-## GitHub Environment
+## Environments
 
-Create a GitHub Environment named `prod`. Add these environment secrets:
+The scheduler supports **prod, dev, qa, sandbox, and design**.
+
+Scheduled runs process all five environments. Manual runs let you select one environment and one API group (`all`, `eapi`, `papi`, or `sapi`).
+
+Create these GitHub Environments:
+
+```text
+prod
+dev
+qa
+sandbox
+design
+```
+
+Add these secrets to each environment:
 
 - `ANYPOINT_CLIENT_ID`
 - `ANYPOINT_CLIENT_SECRET`
 - `ANYPOINT_ORG_ID`
 
-Add this environment variable:
+Add this variable to each environment:
 
 - `ANYPOINT_ENVIRONMENT` — exact Anypoint Platform environment name
 
 Optional:
 
-- `ANYPOINT_HOST` — defaults to `anypoint.mulesoft.com`; use `eu1.anypoint.mulesoft.com` for EU.
+- `ANYPOINT_HOST` — defaults to `anypoint.mulesoft.com`
 
-## Connected App
+A single Connected App can be reused across environments only when it is authorized and has the required permissions in every target environment.
 
-Use an Anypoint Platform Connected App with the `client_credentials` grant and the minimum Runtime Manager / organization / environment permissions required to list and control the target applications.
+## Manual execution
 
-## Manual test
+GitHub → Actions → **MuleSoft API Auto Start Stop** → **Run workflow**.
 
-Go to **GitHub → Actions → MuleSoft API Auto Start Stop → Run workflow**.
+Select:
 
-Choose `stop` or `start` and the GitHub Environment.
+1. `action`: `stop` or `start`
+2. `environment`: `prod`, `dev`, `qa`, `sandbox`, or `design`
+3. `group`: `all`, `eapi`, `papi`, or `sapi`
 
 ## Safety
 
-- Only applications listed in `config/apis.txt` are controlled.
-- Missing application names fail the workflow instead of guessing.
-- Secrets are kept in GitHub Environment secrets.
-- The controller polls after each start/stop request.
-- Any failed application makes the workflow fail.
+- Only applications explicitly listed in EAPI/PAPI/SAPI files are controlled.
+- Missing application names fail the run instead of guessing.
+- The controller waits for the requested desired state and `APPLIED` deployment state.
+- Applications are processed concurrently.
+- Secrets remain in GitHub Environment secrets.
+- Test manually on a non-production environment before enabling production scheduling.
 
-## Important scheduling note
+## Files
 
-GitHub Actions scheduled workflows can be delayed during periods of high platform load. The 06:00/18:00 IST values are the scheduled trigger times, not a hard real-time SLA.
+```text
+config/eapi/apis.txt
+config/papi/apis.txt
+config/sapi/apis.txt
+scripts/mule_control.py
+.github/workflows/mule-api-scheduler.yml
+```
 
-For strict real-time enterprise scheduling, an external scheduler/control plane should trigger the same lifecycle logic.
+Before using the automatic schedule, confirm every listed application in every scheduled environment is safe to stop at 06:00 IST and start at 18:00 IST.
