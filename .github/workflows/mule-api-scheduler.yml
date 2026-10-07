@@ -1,6 +1,6 @@
 name: MuleSoft API Auto Start Stop
 
-run-name: "MuleSoft API Scheduler - ${{ inputs.action || 'schedule' }}${{ inputs.api && format(' - {0}', inputs.api) || '' }}"
+run-name: "MuleSoft API Scheduler - ${{ inputs.action || github.event.client_payload.action || 'schedule' }}${{ (inputs.api || github.event.client_payload.api) && format(' - {0}', inputs.api || github.event.client_payload.api) || '' }}"
 
 on:
   push:
@@ -10,6 +10,9 @@ on:
       - "config/schedules.yml"
       - "config/all/**"
       - "scripts/mule_control.py"
+  repository_dispatch:
+    types:
+      - mule-api-scheduler
   workflow_dispatch:
     inputs:
       action:
@@ -69,12 +72,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          requested_action="${{ inputs.action }}"
+          requested_action="${{ inputs.action || github.event.client_payload.action || 'schedule' }}"
+          requested_region="${{ inputs.region || github.event.client_payload.region || 'all' }}"
+          requested_bg="${{ inputs.business_group || github.event.client_payload.business_group || '' }}"
+          requested_api="${{ inputs.api || github.event.client_payload.api || '' }}"
           if [ "$requested_action" = "start" ] || [ "$requested_action" = "stop" ]; then
             echo "action=$requested_action" >> "$GITHUB_OUTPUT"
             echo "configured_time=NOW" >> "$GITHUB_OUTPUT"
-            echo "business_group=${{ inputs.business_group }}" >> "$GITHUB_OUTPUT"
-            echo "Manual action requested: $requested_action"
+            echo "business_group=$requested_bg" >> "$GITHUB_OUTPUT"
+            echo "region=$requested_region" >> "$GITHUB_OUTPUT"
+            echo "api=$requested_api" >> "$GITHUB_OUTPUT"
+            echo "Manual action requested: $requested_action region=$requested_region api=${requested_api:-all}"
           else
             python3 scripts/schedule_wait.py
           fi
@@ -128,7 +136,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bg="${{ steps.schedule.outputs.business_group || inputs.business_group }}"
+          bg="${{ steps.schedule.outputs.business_group || inputs.business_group || github.event.client_payload.business_group }}"
           if [[ -z "$bg" ]]; then
             echo "::error::Business Group is required."
             exit 1
@@ -143,8 +151,8 @@ jobs:
         if: ${{ steps.schedule.outputs.action == 'start' }}
         env:
           MULE_ACTION: start
-          MULE_REGION: ${{ inputs.region || 'all' }}
-          MULE_API_FILTER: ${{ inputs.api || '' }}
+          MULE_REGION: ${{ steps.schedule.outputs.region || inputs.region || github.event.client_payload.region || 'all' }}
+          MULE_API_FILTER: ${{ steps.schedule.outputs.api || inputs.api || github.event.client_payload.api || '' }}
           MULE_ANALYTICS_FILE: mule-execution-analytics.json
         run: |
           set -euo pipefail
@@ -155,7 +163,8 @@ jobs:
         if: ${{ steps.schedule.outputs.action == 'stop' }}
         env:
           MULE_ACTION: stop
-          MULE_REGION: ${{ inputs.region || 'all' }}
+          MULE_REGION: ${{ steps.schedule.outputs.region || inputs.region || github.event.client_payload.region || 'all' }}
+          MULE_API_FILTER: ${{ steps.schedule.outputs.api || inputs.api || github.event.client_payload.api || '' }}
           MULE_ANALYTICS_FILE: mule-execution-analytics.json
         run: |
           set -euo pipefail
