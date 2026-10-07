@@ -1,6 +1,6 @@
 name: MuleSoft API Auto Start Stop
 
-run-name: "MuleSoft API Scheduler - queued automatic"
+run-name: "MuleSoft API Scheduler - ${{ inputs.action || 'schedule' }}"
 
 on:
   push:
