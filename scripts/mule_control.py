@@ -187,6 +187,88 @@ def resolve_targets(requested):
             seen_ids.add(key); resolved.append(Application(app.name, env, region, app.app_id))
     if missing: raise RuntimeError("Application(s) not found: " + ", ".join(missing))
     return resolved
+
+def _compact(text: str, limit: int = 1200) -> str:
+    value = " ".join((text or "").split())
+    return value[:limit] + ("..." if len(value) > limit else "")
+
+
+def _application_state(app: Application) -> str:
+    result = cli(app.environment, "runtime-mgr:application:describe", app.app_id, "--output", "json")
+    if result.returncode != 0:
+        # Fall back to the list response when describe is unavailable.
+        result = cli(app.environment, "runtime-mgr:application:list", "--output", "json")
+    if result.returncode != 0:
+        raise RuntimeError("state lookup failed: " + _compact(result.stderr or result.stdout))
+    payload = parse_json(result.stdout)
+
+    wanted = app.app_id.strip().lower()
+    wanted_name = app.name.strip().lower()
+    candidates = []
+    for obj in walk(payload):
+        if not isinstance(obj, dict):
+            continue
+        oid = str(obj.get("id") or obj.get("applicationId") or "").strip().lower()
+        oname = str(obj.get("name") or obj.get("applicationName") or "").strip().lower()
+        if oid == wanted or oname == wanted_name:
+            candidates.append(obj)
+    if not candidates:
+        raise RuntimeError("application was not present in Anypoint response")
+
+    obj = candidates[0]
+    for key in ("status", "state", "desiredState", "desired_status", "applicationStatus", "deploymentStatus"):
+        value = obj.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip().upper()
+    # Some CLI versions nest deployment/application state.
+    values = []
+    for key in ("deployment", "application", "runtime"):
+        child = obj.get(key)
+        if isinstance(child, dict):
+            for state_key in ("status", "state", "desiredState", "desired_status"):
+                value = child.get(state_key)
+                if value is not None and str(value).strip():
+                    values.append(str(value).strip().upper())
+    if values:
+        return values[0]
+    return "UNKNOWN"
+
+
+def control(app: Application, action: str):
+    started = time.monotonic()
+    command_name = "runtime-mgr:application:%s" % action
+    print("[%s] %s/%s -> %s (%s)" % (action.upper(), app.environment, app.name, command_name, app.app_id), flush=True)
+
+    before = "UNKNOWN"
+    try:
+        before = _application_state(app)
+    except Exception as exc:
+        print("[WARN] %s initial state lookup: %s" % (app.name, exc), flush=True)
+
+    result = cli(app.environment, command_name, app.app_id)
+    if result.returncode != 0:
+        detail = _compact(result.stderr or result.stdout)
+        return app, False, "CLI failed: %s" % detail, time.monotonic() - started
+
+    expected = "STARTED" if action == "start" else "STOPPED"
+    deadline = time.monotonic() + TIMEOUT_SECONDS if TIMEOUT_SECONDS > 0 else time.monotonic() + 300
+    last = before
+    while time.monotonic() < deadline:
+        try:
+            last = _application_state(app)
+            print("[%s] %s state=%s (before=%s)" % (app.name, last, before, before), flush=True)
+            normalized = last.replace("-", "_").replace(" ", "_").upper()
+            if expected == "STARTED" and normalized in {"STARTED", "RUNNING", "DEPLOYED"}:
+                return app, True, last, time.monotonic() - started
+            if expected == "STOPPED" and normalized in {"STOPPED", "STOPPING", "UNDEPLOYED"}:
+                # STOPPING is accepted only as a transitional success after the stop command.
+                return app, True, last, time.monotonic() - started
+        except Exception as exc:
+            last = "STATE_LOOKUP_ERROR: %s" % _compact(str(exc))
+        time.sleep(POLL_SECONDS)
+
+    return app, False, "Expected %s; final state=%s" % (expected, last), time.monotonic() - started
+
 def write_analytics(action, business_group, applications, results, started, error=""):
     path = Path(os.getenv("MULE_ANALYTICS_FILE", "mule-execution-analytics.json"))
     failed = len(applications) - sum(1 for _, ok, _, _ in results)
