@@ -4,7 +4,10 @@ run-name: "MuleSoft API Scheduler - ${{ github.event_name == 'schedule' && githu
 
 on:
   schedule:
-    # 07:50 IST = 02:20 UTC\n    - cron: "20 2 * * *"\n    # 07:59 IST = 02:29 UTC\n    - cron: "29 2 * * *"
+    # 07:50 IST = 02:20 UTC
+    - cron: "20 2 * * *"
+    # 07:59 IST = 02:29 UTC
+    - cron: "29 2 * * *"
   workflow_dispatch:
     inputs:
       action:
@@ -189,5 +192,6 @@ jobs:
             echo "| API group | **${MULE_GROUP^^}** |"
             echo "| Region | **${MULE_REGION^^}** |"
             echo "| Action | **${MULE_ACTION^^}** |"
-            echo "| Schedule | **config/schedules.yml (24-hour IST)** |"\n            echo "| Scheduler | **Exact 07:50/07:59 IST cron; sandbox only** |
+            echo "| Schedule | **config/schedules.yml (24-hour IST)** |"
+            echo "| Scheduler | **Exact 07:50/07:59 IST cron; sandbox only** |
           } >> "$GITHUB_STEP_SUMMARY"
