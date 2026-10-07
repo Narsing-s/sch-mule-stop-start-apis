@@ -117,6 +117,11 @@ def parse_inventory(selected_region: str) -> list[tuple[str, str, str]]:
                 if key not in seen:
                     seen.add(key)
                     targets.append((name, environment, actual_region))
+    api_filter = os.getenv("MULE_API_FILTER", "").strip().lower()
+    if api_filter:
+        targets = [t for t in targets if t[0].strip().lower() == api_filter]
+        if not targets:
+            raise RuntimeError(f"API filter {api_filter!r} was not found in {INVENTORY}.")
     if not targets:
         raise RuntimeError(f"No active applications configured in {INVENTORY} for region={selected_region}.")
     return targets
