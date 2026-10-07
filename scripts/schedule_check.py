@@ -48,8 +48,8 @@ def main():
     # This keeps a delayed STOP run as STOP even if the clock has reached START.
     if event_schedule:
         expected = {
-            "20 2 * * *": "stop",
-            "29 2 * * *": "start",
+            "30 2 * * *": "stop",
+            "40 2 * * *": "start",
         }
         action = expected.get(event_schedule)
         if action in configured:
