@@ -8,11 +8,11 @@ business_group: "Learning"
 
 stop:
   enabled: true
-  time: "21:52"
+  time: "21:59"
 
 start:
   enabled: true
-  time: "21:59"
+  time: "22:05"
 
 # Scheduler retry after automatic Sandbox environment selection fix.
 # No-cron handoff chain enabled.
