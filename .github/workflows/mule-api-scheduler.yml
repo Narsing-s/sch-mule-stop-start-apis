@@ -16,7 +16,6 @@ on:
 
 permissions:
   contents: read
-  actions: write
 
 jobs:
   wait-for-configured-time:
@@ -472,51 +471,3 @@ jobs:
             echo "| Scheduling model | **Starts immediately, waits for config time, then executes — no cron** |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  cleanup-failed-runs:
-    name: "Remove old failed workflow runs"
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-    steps:
-      - name: Delete completed failed runs for this scheduler workflow
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          CURRENT_RUN: ${{ github.run_id }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          page=1
-          deleted=0
-          while :; do
-            response="$(curl -fsSL \
-              -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "X-GitHub-Api-Version: 2026-03-10" \
-              "https://api.github.com/repos/${REPO}/actions/runs?per_page=100&page=${page}")
-
-            count="$(jq '.workflow_runs | length' <<<"$response")"
-            [[ "$count" -gt 0 ]] || break
-
-            while IFS= read -r run_id; do
-              [[ -n "$run_id" ]] || continue
-              [[ "$run_id" == "$CURRENT_RUN" ]] && continue
-              if curl -fsSL \
-                -H "Accept: application/vnd.github+json" \
-                -H "Authorization: Bearer ${GH_TOKEN}" \
-                -H "X-GitHub-Api-Version: 2026-03-10" \
-                "https://api.github.com/repos/${REPO}/actions/runs/${run_id}" \
-                | jq -e '.status == "completed" and .conclusion == "failure" and .path == ".github/workflows/mule-api-scheduler.yml"' >/dev/null; then
-                curl -fsS -X DELETE \
-                  -H "Accept: application/vnd.github+json" \
-                  -H "Authorization: Bearer ${GH_TOKEN}" \
-                  -H "X-GitHub-Api-Version: 2026-03-10" \
-                  "https://api.github.com/repos/${REPO}/actions/runs/${run_id}"
-                deleted=$((deleted + 1))
-              fi
-            done < <(jq -r '.workflow_runs[].id' <<<"$response")
-
-            [[ "$count" -lt 100 ]] && break
-            page=$((page + 1))
-          done
-          echo "Removed ${deleted} old failed scheduler workflow run(s)."
