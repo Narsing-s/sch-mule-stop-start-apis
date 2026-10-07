@@ -8,4 +8,4 @@ stop:
 
 start:
   enabled: true
-  time: "08:29"
+  time: "08:30"
