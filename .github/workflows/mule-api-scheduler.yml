@@ -47,7 +47,7 @@ jobs:
     timeout-minutes: 360
     environment: sandbox
     concurrency:
-      group: mule-api-scheduler-${{ inputs.action || 'schedule' }}-${{ inputs.business_group }}-${{ inputs.group || 'all' }}-${{ inputs.region || 'all' }}
+      group: mule-api-scheduler-${{ inputs.action || 'schedule' }}-${{ inputs.business_group }}-${{ inputs.region || 'all' }}
       cancel-in-progress: true
     env:
       ANYPOINT_CLIENT_ID: ${{ secrets.ANYPOINT_CLIENT_ID }}
@@ -184,7 +184,7 @@ jobs:
             echo "| Business Group | **${{ steps.schedule.outputs.business_group || inputs.business_group }}** |"
             echo "| Action | **${MULE_ACTION^^}** |"
             echo "| Configured time | **${CONFIGURED_TIME} IST** |"
-            echo "| Region | **${MULE_REGION:-all}** |"
+            echo "| Region filter | **${{ inputs.region || 'all' }}** |"
             echo "| Scheduling model | **Immediate trigger + wait; no cron** |"
           } >> "$GITHUB_STEP_SUMMARY"
 
