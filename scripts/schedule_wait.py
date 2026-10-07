@@ -28,6 +28,7 @@ business_group = (bg_match.group(1).strip() if bg_match else "Learning")
 if not business_group:
     business_group = "Learning"
 if timezone != TZ_NAME:
+    raise SystemExit(f"Only {TZ_NAME} is supported; found {timezone!r}.")
 
 now = datetime.now(ZoneInfo(TZ_NAME))
 candidates = []
