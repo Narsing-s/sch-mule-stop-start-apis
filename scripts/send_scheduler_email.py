@@ -15,6 +15,8 @@ def main() -> int:
     if not path.exists(): raise SystemExit(f"Analytics file not found: {path}")
     data = json.loads(path.read_text(encoding="utf-8"))
     recipient = required("ALERT_EMAIL_TO")
+    recipients = [x.strip() for x in recipient.replace(";", ",").split(",") if x.strip()]
+    if not recipients: raise SystemExit("ALERT_EMAIL_TO contains no recipients.")
     host = required("SMTP_HOST")
     username = required("SMTP_USERNAME")
     password = required("SMTP_PASSWORD")
@@ -29,9 +31,8 @@ def main() -> int:
     lines = [
         subject, "",
         f"Business Group: {data.get('business_group', '')}",
-        f"Environment: {data.get('environment', '')}",
-        f"Group: {data.get('group', 'all')}",
-        f"Region: {data.get('region', 'all')}",
+        f"Environments: {', '.join(data.get('environments', []))}",
+        f"Region filter: {data.get('region', 'all')}",
         f"Total APIs: {data.get('total', 0)}",
         f"Successful: {data.get('successful', 0)}",
         f"Failed: {failed}",
@@ -40,19 +41,19 @@ def main() -> int:
         "API-level results:",
     ]
     for row in data.get("results", []):
-        lines.append(f"- {row.get('group','').upper()}/{row.get('region','').upper()} {row.get('api','')}: {row.get('result','')} - {row.get('final_state','')} ({row.get('duration_seconds',0)}s)")
+        lines.append(f"- {row.get('environment','').upper()}/{row.get('region','').upper()} {row.get('api','')}: {row.get('result','')} - {row.get('final_state','')} ({row.get('duration_seconds',0)}s)")
     lines.extend(["", f"GitHub Actions run: {run_url}"])
     msg = EmailMessage()
     msg["Subject"], msg["From"], msg["To"] = subject, sender, recipient
     msg.set_content("\n".join(lines))
     rows = ""
     for row in data.get("results", []):
-        rows += "<tr>" + "".join("<td>" + html.escape(str(row.get(k, ""))) + "</td>" for k in ("group","region","api","result","final_state","duration_seconds")) + "</tr>"
+        rows += "<tr>" + "".join("<td>" + html.escape(str(row.get(k, ""))) + "</td>" for k in ("environment","region","api","result","final_state","duration_seconds")) + "</tr>"
     body = "<h2>" + html.escape(subject) + "</h2>"
     body += "<table border=1 cellpadding=6 cellspacing=0><tr><th>Metric</th><th>Value</th></tr>"
-    for k,v in (("Business Group",data.get("business_group","")),("Environment",data.get("environment","")),("Group",data.get("group","all")),("Region",data.get("region","all")),("Total APIs",data.get("total",0)),("Successful",data.get("successful",0)),("Failed",failed),("Execution time",str(data.get("total_duration_seconds",0))+" seconds"),("Poll interval",str(data.get("poll_interval_seconds",0))+" seconds")):
+    for k,v in (("Business Group",data.get("business_group","")),("Environments",", ".join(data.get("environments",[]))),("Region filter",data.get("region","all")),("Total APIs",data.get("total",0)),("Successful",data.get("successful",0)),("Failed",failed),("Execution time",str(data.get("total_duration_seconds",0))+" seconds"),("Poll interval",str(data.get("poll_interval_seconds",0))+" seconds")):
         body += "<tr><td>"+html.escape(str(k))+"</td><td>"+html.escape(str(v))+"</td></tr>"
-    body += "</table><h3>API-level results</h3><table border=1 cellpadding=6 cellspacing=0><tr><th>Group</th><th>Region</th><th>API</th><th>Result</th><th>Final state</th><th>Duration</th></tr>"+rows+"</table>"
+    body += "</table><h3>API-level results</h3><table border=1 cellpadding=6 cellspacing=0><tr><th>Environment</th><th>Region</th><th>API</th><th>Result</th><th>Final state</th><th>Duration</th></tr>"+rows+"</table>"
     body += "<p><a href=\"" + html.escape(run_url) + "\">Open GitHub Actions run</a></p>"
     msg.add_alternative(body, subtype="html")
     context = ssl.create_default_context()
