@@ -142,8 +142,8 @@ def resolve_environment_name(requested, available):
     aliases = ENV_ALIASES.get(requested.lower(), (requested.lower(),))
     matches = [x for x in available if x.lower() in aliases or any(a in x.lower() for a in aliases)]
     if len(matches) == 1: return matches[0]
-    if len(matches) > 1: raise RuntimeError(f"Environment {requested!r} is ambiguous: {", ".join(matches)}")
-    raise RuntimeError(f"Anypoint environment {requested!r} was not found. Available: {", ".join(available)}")
+    if len(matches) > 1: raise RuntimeError("Environment %r is ambiguous: %s" % (requested, ", ".join(matches)))
+    raise RuntimeError("Anypoint environment %r was not found. Available: %s" % (requested, ", ".join(available)))
 
 def resolve_targets(requested):
     available_envs = list_environments()
@@ -166,7 +166,7 @@ def resolve_targets(requested):
             unique = {e.lower(): e for _,e,_ in matches}
             if len(unique) != 1:
                 if not matches: raise RuntimeError(f"API {name} could not be found in any accessible Anypoint environment.")
-                raise RuntimeError(f"API {name} was found in multiple Anypoint environments: {", ".join(unique.values())}; configure its environment explicitly.")
+                raise RuntimeError("API %s was found in multiple Anypoint environments: %s; configure its environment explicitly." % (name, ", ".join(unique.values())))
             resolved_requested.append(matches[0])
     by_environment = {}
     for name, environment, region in resolved_requested:
@@ -199,7 +199,7 @@ def write_analytics(action, business_group, applications, results, started, erro
     if summary:
         with open(summary,"a",encoding="utf-8") as f:
             f.write("\n## Execution Analytics\n")
-            f.write(f"**{action.upper()} — {data["successful"]}/{data["total"]} successful; {data["failed"]} failed.**\n\n")
+            f.write("**%s — %s/%s successful; %s failed.**\\n\\n" % (action.upper(), data["successful"], data["total"], data["failed"]))
             if error: f.write(f"**Error:** {error}\n\n")
             f.write("| Environment | Region | API | Result | Final state | Duration |\n|---|---|---|---|---|---:|\n")
             for row in rows: f.write(f"| {row["environment"]} | {row["region"].upper()} | {row["api"]} | {row["result"]} | {row["final_state"].replace("|","\\|")} | {row["duration_seconds"]}s |\n")
