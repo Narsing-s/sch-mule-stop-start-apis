@@ -73,7 +73,9 @@ jobs:
               return match.group(1).strip() if match else default
 
           timezone = re.search(
-              r'''(?m)^\s*timezone:\s*["']?([^\r\n"']+)["']?\s*          timezone = timezone.group(1).strip() if timezone else "Asia/Kolkata"
+              r'''(?m)^\s*timezone:\s*["']?([^\r\n"']+)["']?\s*$''', text
+          )
+          timezone = timezone.group(1).strip() if timezone else "Asia/Kolkata"
 
           if timezone != "Asia/Kolkata":
               raise SystemExit(
