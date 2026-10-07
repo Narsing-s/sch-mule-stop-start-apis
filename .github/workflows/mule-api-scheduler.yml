@@ -1,13 +1,12 @@
 name: MuleSoft API Auto Start Stop
 
-run-name: "MuleSoft API Scheduler - ${{ github.event_name == 'schedule' && github.event.schedule || inputs.action }}"
+run-name: "MuleSoft API Scheduler - ${{ github.event_name == 'schedule' && 'automatic' || inputs.action }}"
 
 on:
+  # GitHub Actions needs one scheduler trigger to wake the workflow.
+  # The actual STOP/START times are controlled only by config/schedules.yml in IST.
   schedule:
-    # 08:00 IST = 02:30 UTC
-    - cron: "30 2 * * *"
-    # 08:10 IST = 02:40 UTC
-    - cron: "40 2 * * *"
+    - cron: "* * * * *"
   workflow_dispatch:
     inputs:
       action:
@@ -46,7 +45,7 @@ jobs:
     concurrency:
       group: mule-api-scheduler-${{ matrix.environment }}
       cancel-in-progress: false
-    name: "${{ matrix.environment }} / ${{ github.event_name == 'workflow_dispatch' && inputs.group || 'all' }} / ${{ github.event_name == 'workflow_dispatch' && inputs.action || 'scheduled' }}"
+    name: "${{ matrix.environment }} / ${{ github.event_name == 'workflow_dispatch' && inputs.group || 'all' }} / ${{ github.event_name == 'workflow_dispatch' && inputs.action || 'automatic' }}"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -70,25 +69,24 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Resolve scheduled action
+      - name: Resolve lifecycle action from normal IST time
         id: action
         shell: bash
         env:
           MANUAL_ACTION: ${{ inputs.action }}
-          SCHEDULE: ${{ github.event.schedule }}
         run: |
           set -euo pipefail
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             action="$MANUAL_ACTION"
           else
-            echo "Checking configured schedule using IST..."
+            echo "Checking config/schedules.yml against current IST time..."
             date -u
             TZ=Asia/Kolkata date
             cat config/schedules.yml
-            python3 scripts/schedule_check.py config/schedules.yml "$SCHEDULE"
+            python3 scripts/schedule_check.py config/schedules.yml
             action="$(cat /tmp/mule-scheduler-action)"
             if [[ "$action" == "none" ]]; then
-              echo "No configured lifecycle action is due. Skipping."
+              echo "No configured lifecycle action is due at this IST minute. Skipping."
               echo "action=none" >> "$GITHUB_OUTPUT"
               echo "MULE_ACTION=none" >> "$GITHUB_ENV"
               exit 0
@@ -192,6 +190,6 @@ jobs:
             echo "| API group | **${MULE_GROUP^^}** |"
             echo "| Region | **${MULE_REGION^^}** |"
             echo "| Action | **${MULE_ACTION^^}** |"
-            echo "| Schedule | **config/schedules.yml (24-hour IST)** |"
-            echo "| Scheduler | **Exact 08:00/08:10 IST cron; sandbox only** |
+            echo "| Schedule source | **config/schedules.yml (24-hour IST)** |"
+            echo "| Automatic trigger | **Every minute; configured time decides action** |"
           } >> "$GITHUB_STEP_SUMMARY"
