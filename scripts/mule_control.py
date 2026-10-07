@@ -139,7 +139,7 @@ def list_environments() -> list[str]:
     result = cli("", "account:environment:list", "--output", "json")
     if result.returncode != 0:
         raise RuntimeError(f"environment list failed: {(result.stderr or result.stdout).strip()}")
-    payload = parse_json(result.stdout)
+    payload = parse_json(result.stdout or result.stderr)
     names = []
     seen = set()
     for obj in walk(payload):
@@ -233,7 +233,7 @@ def _application_state(app: Application) -> str:
         result = cli(app.environment, command, *args)
         if result.returncode == 0 and result.stdout.strip():
             try:
-                payload = parse_json(result.stdout)
+                payload = parse_json(result.stdout or result.stderr)
                 break
             except RuntimeError as exc:
                 last_error = str(exc)
