@@ -6,7 +6,20 @@
 <body><main class="shell">
 <header><div><p class="eyebrow">GITHUB ACTIONS • CLOUDHUB 2.0 • PER-API ENVIRONMENTS • ASIA/KOLKATA</p><h1>MuleSoft API Scheduler Control Center</h1><p class="sub">One master inventory for all APIs. Each API carries its own Anypoint environment and CloudHub region; the Business Group is shared.</p></div><a href="https://github.com/Narsing-s/sch-mule-stop-start-apis" target="_blank" rel="noreferrer">Repository ↗</a></header>
 <section class="notice"><b>Scheduler model</b><span>Saving configuration immediately queues GitHub Actions. The runner waits for the configured IST action, then controls each API in its configured Anypoint environment. No cron is used.</span></section>
-<section class="grid">
+<section class="dashboard card">
+<div class="dashboardHead"><div><div class="eyebrow">OPERATIONS DASHBOARD</div><h2>Scheduler overview</h2><p class="muted">Live GitHub Actions execution history and master API inventory.</p></div><button id="refreshDashboard" class="secondary">↻ Refresh dashboard</button></div>
+<div class="dashStats">
+<div class="dashStat"><span>Total APIs</span><b id="dashTotal">—</b><small>Master inventory</small></div>
+<div class="dashStat"><span>Latest run</span><b id="dashLatest">—</b><small id="dashLatestMeta">Waiting for data</small></div>
+<div class="dashStat"><span>Successful</span><b id="dashSuccess">—</b><small>Latest execution</small></div>
+<div class="dashStat"><span>Failed</span><b id="dashFailed">—</b><small>Latest execution</small></div>
+<div class="dashStat"><span>Skipped</span><b id="dashSkipped">—</b><small>Latest execution</small></div>
+</div>
+<div class="dashboardGrid">
+<div class="dashPanel"><div class="panelTitle"><h3>Recent executions</h3><span>Last 8 runs</span></div><div id="runHistory" class="runHistory"><div class="muted">Connect to load execution history.</div></div></div>
+<div class="dashPanel"><div class="panelTitle"><h3>Inventory by environment</h3><span>Current config</span></div><div id="envBreakdown" class="envBreakdown"><div class="muted">Connect to load inventory.</div></div></div>
+</div>
+</section><section class="grid">
 <article class="card"><h2>GitHub access</h2><label>Repository</label><input id="repo" value="Narsing-s/sch-mule-stop-start-apis"><label>Fine-grained GitHub token</label><input id="token" type="password" placeholder="github_pat_…"><p class="hint">Session only. Grant Contents: Read and write and Actions: Read and write.</p><button id="connect">Connect & load</button><div id="msg" class="status"></div></article>
 <article class="card"><h2>Schedule</h2><div><label>GitHub Environment</label><input value="sandbox (credentials only)" disabled></div><div><label>Business Group</label><input id="scheduleBg" placeholder="Shared Anypoint Business Group name or ID"></div>
 <div class="two"><div><label>Stop</label><div class="inline"><input id="stopTime" type="time"><select id="stopEnabled"><option value="true">Enabled</option><option value="false">Disabled</option></select></div></div><div><label>Start</label><div class="inline"><input id="startTime" type="time"><select id="startEnabled"><option value="true">Enabled</option><option value="false">Disabled</option></select></div></div></div>
