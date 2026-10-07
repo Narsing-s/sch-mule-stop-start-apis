@@ -6,7 +6,7 @@ on:
   # GitHub Actions needs one scheduler trigger to wake the workflow.
   # The actual STOP/START times are controlled only by config/schedules.yml in IST.
   schedule:
-    - cron: "* * * * *"
+    # GitHub Actions supports a minimum practical schedule interval of 5 minutes.\n    # This is only the wake-up trigger; STOP/START times remain in schedules.yml.\n    - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       action:
