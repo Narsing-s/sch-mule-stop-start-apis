@@ -13,7 +13,7 @@ from pathlib import Path
 GROUPS = ("eapi", "papi", "sapi", "other")
 REGIONS = ("west", "westb", "east")
 POLL_SECONDS = int(os.getenv("MULE_POLL_SECONDS", "10"))
-TIMEOUT_SECONDS = int(os.getenv("MULE_TIMEOUT_SECONDS", "1800"))
+TIMEOUT_SECONDS = int(os.getenv("MULE_TIMEOUT_SECONDS", "0"))
 
 @dataclass(frozen=True)
 class Application:
@@ -138,7 +138,7 @@ def describe_state(app_id: str) -> tuple[str, str]:
 def control(app: Application, action: str):
     target = "STARTED" if action == "start" else "STOPPED"
     command = "runtime-mgr:application:start" if action == "start" else "runtime-mgr:application:stop"
-    deadline = time.monotonic() + TIMEOUT_SECONDS
+    deadline = None if TIMEOUT_SECONDS <= 0 else time.monotonic() + TIMEOUT_SECONDS
     try:
         while True:
             desired, deployment = describe_state(app.app_id)
@@ -153,7 +153,7 @@ def control(app: Application, action: str):
                     print(f"[ACTION] {action} submitted for {app.name}", flush=True)
                 else:
                     print(f"[WARN] {app.name}: {(result.stderr or result.stdout).strip()}", flush=True)
-            if time.monotonic() >= deadline:
+            if deadline is not None and time.monotonic() >= deadline:
                 return app, False, f"timeout: {desired}/{deployment}; target={target}"
             time.sleep(POLL_SECONDS)
     except Exception as exc:
