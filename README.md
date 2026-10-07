@@ -151,7 +151,7 @@ sandbox
 
 After Connected App authentication, the workflow queries Anypoint Platform and automatically selects the accessible environment whose name/type is `Sandbox`. It refuses to guess when there are multiple ambiguous matches.
 
-The UI therefore does **not** maintain a second environment selector. The environment shown in the UI is informational and reflects the actual workflow behavior.
+The UI therefore does **not** maintain a second environment selector. The environment shown in the UI is informational and reflects the actual workflow behavior. Per-API START/STOP buttons dispatch the same workflow with that API selected, so they are real controls rather than display-only buttons.
 
 ### Required secrets
 
