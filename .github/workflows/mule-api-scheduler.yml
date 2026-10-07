@@ -266,3 +266,22 @@ jobs:
             echo "| Trigger | **Configuration/API-list push** |"
             echo "| Scheduling model | **Starts immediately, waits for config time, then executes — no cron** |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  cleanup-failed-runs:
+    name: "Remove old failed scheduler runs"
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Remove completed failed runs from this workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="${{ github.run_id }}"
+          gh run list --repo "${{ github.repository }}" --workflow mule-api-scheduler.yml --status failure --limit 100 --json databaseId --jq '.[].databaseId' |
+          while IFS= read -r run_id; do
+            [[ -z "$run_id" || "$run_id" == "$current" ]] && continue
+            gh run delete "$run_id" --repo "${{ github.repository }}" --confirm
+          done
