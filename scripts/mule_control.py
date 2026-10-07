@@ -75,11 +75,19 @@ def parse_inventory(selected_region: str) -> list[tuple[str, str, str]]:
                 raise RuntimeError(f"{INVENTORY}:{line_number}: expected 'api-name | environment | region', got: {item!r}")
             name, environment, region = parts
             region = region.lower()
-            if region not in (*REGIONS, "all"):
-                raise RuntimeError(f"{INVENTORY}:{line_number}: invalid region {region!r}; use west, westb, east, or all.")
-            if selected_region != "all" and region not in (selected_region, "all"):
-                continue
-            for actual_region in (REGIONS if region == "all" else (region,)):
+            if region not in (*REGIONS, "all", "auto"):
+                raise RuntimeError(f"{INVENTORY}:{line_number}: invalid region {region!r}; use west, westb, east, all, or auto.")
+            if environment.lower() == "auto":
+                environment = "auto"
+            if region == "auto":
+                if selected_region != "all":
+                    continue
+                actual_regions = ("auto",)
+            else:
+                if selected_region != "all" and region not in (selected_region, "all"):
+                    continue
+                actual_regions = REGIONS if region == "all" else (region,)
+            for actual_region in actual_regions:
                 key = (name.lower(), environment.lower(), actual_region)
                 if key not in seen:
                     seen.add(key)
@@ -105,10 +113,63 @@ def list_applications(environment: str) -> list[Application]:
                 apps[name.lower()] = Application(name, environment, "", app_id)
     return list(apps.values())
 
+def list_environments() -> list[str]:
+    result = cli("", "account:environment:list", "--output", "json")
+    if result.returncode != 0:
+        raise RuntimeError(f"environment list failed: {(result.stderr or result.stdout).strip()}")
+    payload = parse_json(result.stdout)
+    names = []
+    seen = set()
+    for obj in walk(payload):
+        if not isinstance(obj, dict):
+            continue
+        name = obj.get("name") or obj.get("environmentName")
+        if name:
+            value = str(name).strip()
+            if value and value.lower() not in seen:
+                seen.add(value.lower())
+                names.append(value)
+    if not names:
+        raise RuntimeError("No accessible Anypoint environments were returned for the Business Group.")
+    return names
+
 def resolve_targets(requested):
+    auto_names = {name.lower(): name for name, env, region in requested if env.lower() == "auto"}
+    explicit = [x for x in requested if x[1].lower() != "auto"]
+    if auto_names:
+        if any(region == "auto" for _, _, region in requested if _ in auto_names.values()):
+            pass
+        discovered = []
+        for environment in list_environments():
+            try:
+                available = list_applications(environment)
+            except RuntimeError:
+                continue
+            by_name = {app.name.lower(): app for app in available}
+            for key, original_name in auto_names.items():
+                app = by_name.get(key)
+                if app:
+                    discovered.append((original_name, environment, "auto"))
+        matches = {}
+        for name, env, region in discovered:
+            matches.setdefault(name.lower(), []).append((name, env, region))
+        for name, items in matches.items():
+            unique_envs = {env.lower() for _, env, _ in items}
+            if len(unique_envs) > 1:
+                raise RuntimeError(f"API {name} was found in multiple Anypoint environments; replace auto with an explicit environment.")
+            explicit.append(items[0])
+        for name in auto_names.values():
+            if name not in {x[0] for x in explicit}:
+                raise RuntimeError(f"API {name} could not be found in any accessible Anypoint environment.")
+
     by_environment = {}
-    for name, environment, region in requested:
+    for name, environment, region in explicit:
+        if region == "auto":
+            region = "all"
+        if region != "all" and region not in REGIONS:
+            raise RuntimeError(f"Invalid resolved region {region} for {name}.")
         by_environment.setdefault(environment.lower(), []).append((name, environment, region))
+
     resolved, missing, seen_ids = [], [], set()
     for entries in by_environment.values():
         environment = entries[0][1]
@@ -130,97 +191,3 @@ def resolve_targets(requested):
         raise RuntimeError("Application(s) not found: " + ", ".join(missing))
     return resolved
 
-def describe_state(app: Application) -> tuple[str, str]:
-    result = cli(app.environment, "runtime-mgr:application:describe", app.app_id, "--output", "json")
-    if result.returncode != 0:
-        raise RuntimeError(f"describe failed for {app.environment}/{app.name}: {(result.stderr or result.stdout).strip()}")
-    payload = parse_json(result.stdout)
-    desired = values_for_key(payload, "desiredState")
-    desired_state = desired[0] if desired else "UNKNOWN"
-    deployment_state = "UNKNOWN"
-    for key in ("status", "deploymentStatus", "state"):
-        for candidate in values_for_key(payload, key):
-            if candidate in {"APPLIED", "APPLYING", "FAILED", "DELETED"}:
-                deployment_state = candidate
-                break
-        if deployment_state != "UNKNOWN":
-            break
-    return desired_state, deployment_state
-
-def control(app: Application, action: str):
-    started = time.monotonic()
-    target = "STARTED" if action == "start" else "STOPPED"
-    command = "runtime-mgr:application:start" if action == "start" else "runtime-mgr:application:stop"
-    deadline = None if TIMEOUT_SECONDS <= 0 else time.monotonic() + TIMEOUT_SECONDS
-    try:
-        while True:
-            desired, deployment = describe_state(app)
-            print(f"[{app.environment}/{app.region.upper()}] {app.name} => deployment={deployment}, desired={desired}", flush=True)
-            if desired == target and deployment == "APPLIED":
-                return app, True, f"{desired}/{deployment}", time.monotonic() - started
-            if deployment == "FAILED":
-                return app, False, f"deployment failed while targeting {target}", time.monotonic() - started
-            if desired != target:
-                result = cli(app.environment, command, app.app_id)
-                if result.returncode == 0:
-                    print(f"[ACTION] {action} submitted for {app.environment}/{app.name}", flush=True)
-                else:
-                    print(f"[WARN] {app.environment}/{app.name}: {(result.stderr or result.stdout).strip()}", flush=True)
-            if deadline is not None and time.monotonic() >= deadline:
-                return app, False, f"timeout: {desired}/{deployment}; target={target}", time.monotonic() - started
-            time.sleep(POLL_SECONDS)
-    except Exception as exc:
-        return app, False, str(exc), time.monotonic() - started
-
-def main() -> int:
-    action = os.getenv("MULE_ACTION", "").strip().lower()
-    region = os.getenv("MULE_REGION", "all").strip().lower()
-    business_group = os.getenv("ANYPOINT_BG", "").strip()
-    if action not in {"start", "stop"}:
-        print("MULE_ACTION must be start or stop.", file=sys.stderr)
-        return 2
-    if not business_group:
-        print("ANYPOINT_BG is required.", file=sys.stderr)
-        return 2
-    applications = resolve_targets(parse_inventory(region))
-    failures, results = 0, []
-    execution_started = time.monotonic()
-    print(f"Business Group={business_group}; controlling {len(applications)} APIs across {len({a.environment.lower() for a in applications})} Anypoint environment(s).", flush=True)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(12, max(1, len(applications)))) as executor:
-        for future in concurrent.futures.as_completed([executor.submit(control, app, action) for app in applications]):
-            app, ok, message, duration = future.result()
-            results.append((app, ok, message, duration))
-            print(f"[{'OK' if ok else 'FAILED'}] [{app.environment}/{app.region.upper()}] {app.name}: {message}", flush=True)
-            if not ok:
-                failures += 1
-    success_count = len(applications) - failures
-    total_duration = time.monotonic() - execution_started
-    analytics_path = os.getenv("MULE_ANALYTICS_FILE", "mule-execution-analytics.json")
-    analytics = {
-        "action": action, "business_group": business_group, "inventory": str(INVENTORY),
-        "total": len(applications), "successful": success_count, "failed": failures,
-        "total_duration_seconds": round(total_duration, 1), "poll_interval_seconds": POLL_SECONDS,
-        "environments": sorted({app.environment for app in applications}, key=str.lower),
-        "results": [{"api": app.name, "business_group": business_group, "environment": app.environment,
-                     "region": app.region, "result": "SUCCESS" if ok else "FAILED",
-                     "final_state": message, "duration_seconds": round(duration, 1)}
-                    for app, ok, message, duration in sorted(results, key=lambda x: (x[0].environment.lower(), x[0].region, x[0].name.lower()))]
-    }
-    with open(analytics_path, "w", encoding="utf-8") as f:
-        json.dump(analytics, f, indent=2)
-    summary_file = os.getenv("GITHUB_STEP_SUMMARY")
-    if summary_file:
-        with open(summary_file, "a", encoding="utf-8") as summary:
-            summary.write("\n## Execution Analytics\n")
-            summary.write(f"**{action.upper()} {'successful' if failures == 0 else 'completed with failures'} — {success_count}/{len(applications)} APIs successful.**\n\n")
-            summary.write("| Environment | Region | API | Result | Final state | Duration |\n|---|---|---|---|---|---:|\n")
-            for app, ok, message, duration in sorted(results, key=lambda x: (x[0].environment.lower(), x[0].region, x[0].name.lower())):
-                summary.write(f"| {app.environment} | {app.region.upper()} | {app.name} | {'SUCCESS' if ok else 'FAILED'} | {message.replace('|', '\\|')} | {duration:.1f}s |\n")
-    if failures:
-        print(f"{failures} API(s) did not reach the requested {action.upper()} state.", file=sys.stderr)
-        return 1
-    print(f"ALL {len(applications)} APIs reached the requested {action.upper()} state.", flush=True)
-    return 0
-
-if __name__ == "__main__":
-    raise SystemExit(main())
