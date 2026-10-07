@@ -64,13 +64,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          response="$(curl -sS -w '\n%{http_code}' -X POST "https://${ANYPOINT_HOST}/accounts/api/v2/oauth2/token" -H "Content-Type: application/x-www-form-urlencoded" --data-urlencode "grant_type=client_credentials" --data-urlencode "client_id=${ANYPOINT_CLIENT_ID}" --data-urlencode "client_secret=${ANYPOINT_CLIENT_SECRET}")"
-          status="$(printf '%s\n' "$response" | tail -n1)"
-          body="$(printf '%s\n' "$response" | sed '$d')"
-          if [[ "$status" != "200" ]]; then echo "::error::Connected App authentication failed: HTTP $status"; exit 1; fi
-          token="$(printf '%s' "$body" | jq -r '.access_token // empty')"
-          [[ -n "$token" ]] || { echo "::error::No access_token returned."; exit 1; }
-          echo "::notice::Connected App authentication successful."
+          response_file="$(mktemp)"
+          trap 'rm -f "$response_file"' EXIT
+          status="$(curl -sS -o "$response_file" -w '%{http_code}' -X POST "https://${ANYPOINT_HOST}/accounts/api/v2/oauth2/token" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            --data-urlencode "grant_type=client_credentials" \
+            --data-urlencode "client_id=${ANYPOINT_CLIENT_ID}" \
+            --data-urlencode "client_secret=${ANYPOINT_CLIENT_SECRET}")
+          if [[ "$status" != "200" ]]; then
+            echo "::error::Connected App authentication failed: HTTP $status"
+            exit 1
+          fi
+          token="$(jq -r '.access_token // empty' "$response_file")"
+          if [[ -z "$token" ]]; then
+            echo "::error::Connected App authentication returned HTTP 200 but no access_token."
+            exit 1
+          fi
+          echo "::notice::Connected App authentication successful (HTTP 200)."
 
       - name: Automatically select Sandbox Anypoint environment
         shell: bash
