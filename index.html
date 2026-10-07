@@ -35,27 +35,7 @@
 </article>
 </section>
 
-<section class="card">
-<div class="sectionHead"><div><h2>API Configuration</h2><p class="muted">Manage EAPI, PAPI, SAPI and Other separately. For every region, paste API/application names as a comma-separated list.</p></div></div>
-<div class="apiEditor">
-  <div class="editorRow"><label>API group</label><select id="editGroup"><option value="eapi">EAPI</option><option value="papi">PAPI</option><option value="sapi">SAPI</option><option value="other">Other</option></select></div>
-  <div class="editorRow"><label>Region</label><select id="editRegion"><option value="all">All regions</option><option value="west">West</option><option value="westb">WestB</option><option value="east">East</option></select></div>
-  <label>API/application names (comma separated)</label>
-  <textarea id="apiNames" rows="7" placeholder="api-one, api-two, api-three"></textarea>
-  <p class="hint">Example: <code>customer-sapi, payment-sapi, account-sapi</code>. One entry can also be placed per line. Saving updates the selected <code>config/&lt;group&gt;/&lt;region&gt;/apis.txt</code>.</p>
-  <button id="saveApis">Save API list</button>
-  <div id="apiMsg" class="status"></div>
-</div>
-</section>
-
-<section class="card">
-<div class="sectionHead"><div><h2>START / STOP controls</h2><p class="muted">Select a group and region, then control all configured APIs in that scope immediately.</p></div></div>
-<div class="two">
-  <div><label>API group</label><select id="controlGroup"><option value="eapi">EAPI</option><option value="papi">PAPI</option><option value="sapi">SAPI</option><option value="other">Other</option><option value="all">All groups</option></select></div>
-  <div><label>Region</label><select id="controlRegion"><option value="all">All regions</option><option value="west">West</option><option value="westb">WestB</option><option value="east">East</option></select></div>
-</div>
-<div class="two actionPair"><button data-action="start" id="startScope">START selected APIs</button><button class="danger" data-action="stop" id="stopScope">STOP selected APIs</button></div>
-</section>
+<section class="card"><div class="sectionHead"><div><h2>API Upload Center</h2><p class="muted">Upload a TXT or CSV file for every group and every CloudHub region. API names can be comma-separated or one per line.</p></div></div><div class="uploadMatrix" id="uploadMatrix"></div></section><section class="card"><div class="sectionHead"><div><h2>START / STOP controls</h2><p class="muted">Select a group and region, then control all configured APIs in that scope immediately.</p></div></div><div class="two"><div><label>API group</label><select id="controlGroup"><option value="eapi">EAPI</option><option value="papi">PAPI</option><option value="sapi">SAPI</option><option value="other">Other</option><option value="all">All groups</option></select></div><div><label>Region</label><select id="controlRegion"><option value="all">All regions</option><option value="west">West</option><option value="westb">WestB</option><option value="east">East</option></select></div></div><div class="two actionPair"><button data-action="start" id="startScope" data-group="eapi" data-region="all">START selected APIs</button><button class="danger" data-action="stop" id="stopScope" data-group="eapi" data-region="all">STOP selected APIs</button></div></section>
 
 <section class="card">
 <div class="sectionHead"><div><h2>API inventory</h2><p class="muted">Configured applications across EAPI, PAPI, SAPI and Other, including regional configuration.</p></div><button id="refresh" class="secondary">Refresh</button></div>
