@@ -57,12 +57,21 @@ def main() -> int:
     body += "<p><a href=\"" + html.escape(run_url) + "\">Open GitHub Actions run</a></p>"
     msg.add_alternative(body, subtype="html")
     context = ssl.create_default_context()
-    if security == "ssl":
-        with smtplib.SMTP_SSL(host, port, context=context, timeout=30) as server:
-            server.login(username, password); server.send_message(msg, from_addr=sender, to_addrs=recipients)
-    else:
-        with smtplib.SMTP(host, port, timeout=30) as server:
-            server.ehlo(); server.starttls(context=context); server.ehlo(); server.login(username, password); server.send_message(msg, from_addr=sender, to_addrs=recipients)
+    try:
+        if security == "ssl":
+            with smtplib.SMTP_SSL(host, port, context=context, timeout=30) as server:
+                server.login(username, password); server.send_message(msg, from_addr=sender, to_addrs=recipients)
+        else:
+            with smtplib.SMTP(host, port, timeout=30) as server:
+                server.ehlo(); server.starttls(context=context); server.ehlo(); server.login(username, password); server.send_message(msg, from_addr=sender, to_addrs=recipients)
+    except smtplib.SMTPDataError as exc:
+        # Do not turn a completed Mule execution into a failed workflow when
+        # the SMTP provider rejects delivery (for example Gmail 550 5.4.5
+        # daily sending limit). The analytics file remains the source of truth.
+        if getattr(exc, "smtp_code", None) == 550 and "5.4.5" in str(getattr(exc, "smtp_error", b"")):
+            print(f"WARNING: SMTP provider rejected the alert because the sending limit was exceeded: {exc}", flush=True)
+            return 0
+        raise
     print(f"Scheduler email alert sent to {recipient}.", flush=True)
     return 0
 
