@@ -36,14 +36,25 @@
 </section>
 
 <section class="card">
-<div class="sectionHead"><div><h2>Live controls</h2><p class="muted">These buttons run the same production workflow immediately; they do not edit your schedule.</p></div></div>
-<div class="controlGrid">
-  <div class="controlGroup"><h3>EAPI</h3><button data-group="eapi" data-region="all" data-action="start">START EAPI</button><button class="danger" data-group="eapi" data-region="all" data-action="stop">STOP EAPI</button></div>
-  <div class="controlGroup"><h3>PAPI</h3><button data-group="papi" data-region="all" data-action="start">START PAPI</button><button class="danger" data-group="papi" data-region="all" data-action="stop">STOP PAPI</button></div>
-  <div class="controlGroup"><h3>SAPI</h3><button data-group="sapi" data-region="all" data-action="start">START SAPI</button><button class="danger" data-group="sapi" data-region="all" data-action="stop">STOP SAPI</button></div>
-  <div class="controlGroup"><h3>Other</h3><button data-group="other" data-region="all" data-action="start">START OTHER</button><button class="danger" data-group="other" data-region="all" data-action="stop">STOP OTHER</button></div>
+<div class="sectionHead"><div><h2>API Configuration</h2><p class="muted">Manage EAPI, PAPI, SAPI and Other separately. For every region, paste API/application names as a comma-separated list.</p></div></div>
+<div class="apiEditor">
+  <div class="editorRow"><label>API group</label><select id="editGroup"><option value="eapi">EAPI</option><option value="papi">PAPI</option><option value="sapi">SAPI</option><option value="other">Other</option></select></div>
+  <div class="editorRow"><label>Region</label><select id="editRegion"><option value="all">All regions</option><option value="west">West</option><option value="westb">WestB</option><option value="east">East</option></select></div>
+  <label>API/application names (comma separated)</label>
+  <textarea id="apiNames" rows="7" placeholder="api-one, api-two, api-three"></textarea>
+  <p class="hint">Example: <code>customer-sapi, payment-sapi, account-sapi</code>. One entry can also be placed per line. Saving updates the selected <code>config/&lt;group&gt;/&lt;region&gt;/apis.txt</code>.</p>
+  <button id="saveApis">Save API list</button>
+  <div id="apiMsg" class="status"></div>
 </div>
-<div class="regionControls"><b>Region:</b><select id="controlRegion"><option value="all">All</option><option value="west">West</option><option value="westb">WestB</option><option value="east">East</option></select><span class="hint">Choose a region, then use the group buttons above.</span></div>
+</section>
+
+<section class="card">
+<div class="sectionHead"><div><h2>START / STOP controls</h2><p class="muted">Select a group and region, then control all configured APIs in that scope immediately.</p></div></div>
+<div class="two">
+  <div><label>API group</label><select id="controlGroup"><option value="eapi">EAPI</option><option value="papi">PAPI</option><option value="sapi">SAPI</option><option value="other">Other</option><option value="all">All groups</option></select></div>
+  <div><label>Region</label><select id="controlRegion"><option value="all">All regions</option><option value="west">West</option><option value="westb">WestB</option><option value="east">East</option></select></div>
+</div>
+<div class="two actionPair"><button data-action="start" id="startScope">START selected APIs</button><button class="danger" data-action="stop" id="stopScope">STOP selected APIs</button></div>
 </section>
 
 <section class="card">
