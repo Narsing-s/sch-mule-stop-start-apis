@@ -1,6 +1,6 @@
 name: MuleSoft API Auto Start Stop
 
-run-name: "MuleSoft API Start / Stop Control #${{ github.run_number }} — ${{ inputs.environment || github.event.client_payload.environment || 'sandbox' }} — ${{ inputs.action || github.event.client_payload.action || 'schedule' }}"
+run-name: "MuleSoft auto API Start / Stop Control #${{ github.run_number }} — ${{ inputs.environment || github.event.client_payload.environment || 'sandbox' }} — ${{ inputs.action || github.event.client_payload.action || 'schedule' }}"
 
 on:
   push:
