@@ -1,6 +1,6 @@
 name: MuleSoft API Auto Start Stop
 
-run-name: "MuleSoft API Scheduler - ${{ github.event_name == 'schedule' && 'automatic' || github.event_name == 'push' && 'workflow-install-check' || inputs.action }}"
+run-name: "MuleSoft API Scheduler - ${{ github.event_name == 'schedule' && 'automatic' || inputs.action }}"
 
 on:
   schedule:
