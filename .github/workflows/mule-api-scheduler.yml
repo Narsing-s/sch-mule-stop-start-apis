@@ -168,7 +168,7 @@ jobs:
           PY
 
       - name: Start configured applications
-        if: ${{ steps.schedule.outputs.handoff != 'true' && steps.schedule.outputs.action == 'start' }}
+        if: ${{ steps.schedule.outputs.action == 'start' }}
         env:
           MULE_ACTION: start
           MULE_GROUP: ${{ inputs.group || 'all' }}
@@ -179,7 +179,7 @@ jobs:
           python3 scripts/mule_control.py
 
       - name: Stop configured applications
-        if: ${{ steps.schedule.outputs.handoff != 'true' && steps.schedule.outputs.action == 'stop' }}
+        if: ${{ steps.schedule.outputs.action == 'stop' }}
         env:
           MULE_ACTION: stop
           MULE_GROUP: ${{ inputs.group || 'all' }}
@@ -190,7 +190,7 @@ jobs:
           python3 scripts/mule_control.py
 
       - name: Email execution analytics
-        if: ${{ always() && steps.schedule.outputs.handoff != 'true' && (steps.schedule.outputs.action == 'start' || steps.schedule.outputs.action == 'stop') }}
+        if: ${{ always() && (steps.schedule.outputs.action == 'start' || steps.schedule.outputs.action == 'stop') }}
         continue-on-error: true
         env:
           ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO || vars.ALERT_EMAIL_TO }}
@@ -206,23 +206,12 @@ jobs:
           set -euo pipefail
           python3 scripts/send_scheduler_email.py
       - name: Reject invalid scheduled action
-        if: ${{ steps.schedule.outputs.handoff != 'true' && steps.schedule.outputs.action != 'start' && steps.schedule.outputs.action != 'stop' }}
+        if: ${{ steps.schedule.outputs.action != 'start' && steps.schedule.outputs.action != 'stop' }}
         shell: bash
         run: |
           set -euo pipefail
           echo "::error::Scheduler resolved an invalid action: '${{ steps.schedule.outputs.action }}'. Expected start or stop."
           exit 1
-
-      - name: Queue next daily scheduler cycle
-        if: ${{ steps.schedule.outputs.handoff != 'true' && (github.event_name == 'push' || inputs.action == 'schedule') }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Completed scheduled action; queueing the next daily cycle with workflow_dispatch."
-          gh workflow run mule-api-scheduler.yml --repo "${{ github.repository }}" --ref main             -f action=schedule -f group=all -f region=all -f business_group="${{ steps.schedule.outputs.business_group || inputs.business_group }}"
-          echo "::notice::Next daily scheduler cycle queued."
 
       - name: Publish execution summary
         if: always()
