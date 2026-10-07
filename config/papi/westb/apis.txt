@@ -1,2 +1,0 @@
-# PAPI applications for WestB region.
-# One application name per line.
