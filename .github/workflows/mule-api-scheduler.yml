@@ -61,7 +61,7 @@ jobs:
     timeout-minutes: 360
     environment: sandbox
     concurrency:
-      group: mule-api-scheduler-${{ inputs.action || 'schedule' }}-${{ inputs.business_group || 'Learning' }}-${{ inputs.group || 'all' }}-${{ inputs.region || 'all' }}
+      group: mule-api-scheduler-${{ inputs.action || 'schedule' }}-${{ inputs.business_group }}-${{ inputs.group || 'all' }}-${{ inputs.region || 'all' }}
       cancel-in-progress: true
     env:
       ANYPOINT_CLIENT_ID: ${{ secrets.ANYPOINT_CLIENT_ID }}
