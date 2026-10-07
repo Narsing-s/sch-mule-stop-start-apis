@@ -58,7 +58,7 @@ def walk(value):
             yield from walk(child)
 
 def cli(environment: str, *args: str) -> subprocess.CompletedProcess[str]:
-    """Run Anypoint CLI with global authentication/environment flags first."""
+    """Run Anypoint CLI with the command first, then authentication/global flags."""
     flags = []
     client_id = os.getenv("ANYPOINT_CLIENT_ID", "").strip()
     client_secret = os.getenv("ANYPOINT_CLIENT_SECRET", "").strip()
@@ -71,12 +71,15 @@ def cli(environment: str, *args: str) -> subprocess.CompletedProcess[str]:
         flags.extend(["--organization", organization])
     if environment:
         flags.extend(["--environment", environment])
+    # Anypoint CLI v4 syntax is: anypoint-cli-v4 [command] [parameters] [flags].
+    # Authentication flags before the command are interpreted as commands.
     return subprocess.run(
-        ["anypoint-cli-v4", *flags, *args],
+        ["anypoint-cli-v4", *args, *flags],
         text=True,
         capture_output=True,
         check=False,
     )
+
 def parse_inventory(selected_region: str) -> list[tuple[str, str, str]]:
     if not INVENTORY.exists():
         raise RuntimeError(f"Missing API inventory: {INVENTORY}")
