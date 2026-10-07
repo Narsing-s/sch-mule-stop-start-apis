@@ -36,6 +36,11 @@ on:
         required: true
         default: ""
         type: string
+      api:
+        description: "Optional single API/application name or ID"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -139,6 +144,7 @@ jobs:
         env:
           MULE_ACTION: start
           MULE_REGION: ${{ inputs.region || 'all' }}
+          MULE_API_FILTER: ${{ inputs.api || '' }}
           MULE_ANALYTICS_FILE: mule-execution-analytics.json
         run: |
           set -euo pipefail
