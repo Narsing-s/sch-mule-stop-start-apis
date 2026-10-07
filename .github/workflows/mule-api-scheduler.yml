@@ -138,6 +138,7 @@ jobs:
         env:
           MULE_ACTION: start
           MULE_REGION: ${{ inputs.region || 'all' }}
+          MULE_ANALYTICS_FILE: mule-execution-analytics.json
         run: |
           set -euo pipefail
           echo "Executing START action for master inventory, region=${MULE_REGION}"
@@ -148,11 +149,25 @@ jobs:
         env:
           MULE_ACTION: stop
           MULE_REGION: ${{ inputs.region || 'all' }}
+          MULE_ANALYTICS_FILE: mule-execution-analytics.json
         run: |
           set -euo pipefail
           echo "Executing STOP action for master inventory, region=${MULE_REGION}"
           python3 scripts/mule_control.py
 
+      - name: Verify execution analytics
+        if: ${{ always() && (steps.schedule.outputs.action == 'start' || steps.schedule.outputs.action == 'stop') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -s mule-execution-analytics.json ]]; then
+            echo "::error::Controller did not produce mule-execution-analytics.json. The START/STOP operation cannot be considered successful."
+            echo "Workspace: $PWD"
+            ls -la
+            exit 1
+          fi
+          echo "::notice::Execution analytics file created:"
+          jq '{action,business_group,total,successful,failed,error}' mule-execution-analytics.json
       - name: Email execution analytics
         if: ${{ always() && (steps.schedule.outputs.action == 'start' || steps.schedule.outputs.action == 'stop') }}
         continue-on-error: true
