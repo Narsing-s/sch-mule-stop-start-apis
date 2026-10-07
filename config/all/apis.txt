@@ -1,0 +1,21 @@
+# Master API inventory. All APIs belong to the same Anypoint Business Group.
+# Format: api-name | anypoint-environment | region
+# Environment and region can be set explicitly, for example:
+# customer-api | Sandbox | west
+# orders-api | Development | east
+# payments-api | Production | westb
+#
+# "auto" is supported for migration/discovery. The controller searches accessible
+# Anypoint environments and requires a unique API match. Region=auto is treated
+# as all regions and should be replaced with the actual region when known.
+
+birthday-notification-api | auto | auto
+transform-json-to-excel | auto | auto
+sch-real-bank-api | auto | auto
+salesforce-contact-sapi | auto | auto
+policies-demo-api | auto | auto
+maths-table | auto | auto
+loan-scheduler | auto | auto
+intrest-calculator-api | auto | auto
+downloadflow-emp-excel-file | auto | auto
+calculator-api | auto | auto
