@@ -9,6 +9,7 @@ on:
     paths:
       - "config/schedules.yml"
       - "config/all/**"
+      - "scripts/mule_control.py"
   workflow_dispatch:
     inputs:
       action:
