@@ -137,13 +137,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          for name in ANYPOINT_CLIENT_ID ANYPOINT_CLIENT_SECRET ANYPOINT_ORG ANYPOINT_ENV; do
+          for name in ANYPOINT_CLIENT_ID ANYPOINT_CLIENT_SECRET ANYPOINT_ORG; do
             if [[ -z "${!name:-}" ]]; then
               echo "::error::Missing $name in GitHub Environment 'sandbox'."
               exit 1
             fi
           done
 
+          # ANYPOINT_ENV is resolved automatically later by the Anypoint CLI.
           for file in \
             config/eapi/all/apis.txt config/eapi/west/apis.txt config/eapi/westb/apis.txt config/eapi/east/apis.txt \
             config/papi/all/apis.txt config/papi/west/apis.txt config/papi/westb/apis.txt config/papi/east/apis.txt \
