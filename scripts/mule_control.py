@@ -23,6 +23,25 @@ class Application:
     region: str
     app_id: str
 
+
+def parse_json(text: str):
+    """Decode CLI JSON output with a clear error when it is not valid JSON."""
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"invalid JSON from Anypoint CLI: {exc}") from exc
+
+
+def walk(value):
+    """Yield every nested dict/list value so CLI response shapes can vary safely."""
+    yield value
+    if isinstance(value, dict):
+        for child in value.values():
+            yield from walk(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from walk(child)
+
 def cli(environment: str, *args: str) -> subprocess.CompletedProcess[str]:
     """Run Anypoint CLI with global authentication/environment flags first."""
     flags = []
