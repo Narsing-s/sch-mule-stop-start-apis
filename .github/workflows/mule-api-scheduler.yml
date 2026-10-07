@@ -3,10 +3,9 @@ name: MuleSoft API Auto Start Stop
 run-name: "MuleSoft API Scheduler - ${{ github.event_name == 'schedule' && 'automatic' || inputs.action }}"
 
 on:
-  # GitHub Actions needs one scheduler trigger to wake the workflow.
-  # The actual STOP/START times are controlled only by config/schedules.yml in IST.
   schedule:
-    # GitHub Actions supports a minimum practical schedule interval of 5 minutes.\n    # This is only the wake-up trigger; STOP/START times remain in schedules.yml.\n    - cron: "*/5 * * * *"
+    # Generic wake-up only. Business times are defined in config/schedules.yml (IST).
+    - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       action:
@@ -96,6 +95,7 @@ jobs:
           echo "MULE_ACTION=$action" >> "$GITHUB_ENV"
 
       - name: Validate credentials and configuration
+        if: env.MULE_ACTION != 'none'
         shell: bash
         run: |
           set -euo pipefail
@@ -158,12 +158,14 @@ jobs:
                   if value:
                       name = str(value).strip()
                       if name and name.lower() not in seen:
-                          seen.add(name.lower()); names.append(name)
+                          seen.add(name.lower())
+                          names.append(name)
           matches = [n for n in names if n.lower() == target]
           if not matches:
               print(f"::error::Anypoint environment '{sys.argv[2]}' is not visible to this Connected App.")
               print('Visible environments:')
-              for n in names: print('  - ' + n)
+              for n in names:
+                  print('  - ' + n)
               raise SystemExit(2)
           with open(sys.argv[1], 'a', encoding='utf-8') as f:
               f.write('ANYPOINT_ENV=' + matches[0] + '\n')
@@ -191,5 +193,5 @@ jobs:
             echo "| Region | **${MULE_REGION^^}** |"
             echo "| Action | **${MULE_ACTION^^}** |"
             echo "| Schedule source | **config/schedules.yml (24-hour IST)** |"
-            echo "| Automatic trigger | **Every minute; configured time decides action** |"
+            echo "| Automatic trigger | **Every 5 minutes; configured IST time decides action** |"
           } >> "$GITHUB_STEP_SUMMARY"
