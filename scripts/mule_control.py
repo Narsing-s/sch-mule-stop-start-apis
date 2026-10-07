@@ -25,11 +25,26 @@ class Application:
 
 
 def parse_json(text: str):
-    """Decode CLI JSON output with a clear error when it is not valid JSON."""
+    """Decode Anypoint CLI JSON, tolerating banners/warnings around the payload."""
+    raw = (text or "").lstrip("\ufeff").strip()
+    if not raw:
+        raise RuntimeError("Anypoint CLI returned empty output while JSON was expected")
     try:
-        return json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"invalid JSON from Anypoint CLI: {exc}") from exc
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        # CLI versions can prepend warnings or formatting text even with
+        # --output json. Extract the first complete JSON object/array.
+        decoder = json.JSONDecoder()
+        for index, char in enumerate(raw):
+            if char not in "[{":
+                continue
+            try:
+                value, _ = decoder.raw_decode(raw[index:])
+                return value
+            except json.JSONDecodeError:
+                continue
+        preview = " ".join(raw.split())[:500]
+        raise RuntimeError(f"invalid JSON from Anypoint CLI; output={preview!r}")
 
 
 def walk(value):
@@ -107,7 +122,7 @@ def list_applications(environment: str) -> list[Application]:
     result = cli(environment, "runtime-mgr:application:list", "--output", "json")
     if result.returncode != 0:
         raise RuntimeError(f"application list failed for environment {environment}: {(result.stderr or result.stdout).strip()}")
-    payload = parse_json(result.stdout)
+    payload = parse_json(result.stdout or result.stderr)
     apps = {}
     for obj in walk(payload):
         if not isinstance(obj, dict):
