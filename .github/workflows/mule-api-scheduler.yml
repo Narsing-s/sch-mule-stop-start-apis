@@ -40,42 +40,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from datetime import datetime, timedelta
-          from pathlib import Path
-          from zoneinfo import ZoneInfo
-          import os, re, time
-          text=Path("config/schedules.yml").read_text(encoding="utf-8")
-                    tz=re.search(r"""(?m)^\s*timezone:\s*["']?([^\r\n"']+)["']?\s*$""", text)
-          if (tz.group(1).strip() if tz else "Asia/Kolkata") != "Asia/Kolkata":
-              raise SystemExit("Only Asia/Kolkata is supported.")
-          now=datetime.now(ZoneInfo("Asia/Kolkata"))
-          candidates=[]
-          for action in ("stop","start"):
-                            m=re.search(rf"""(?ms)^{action}:\s*\n(.*?)(?=^[A-Za-z0-9_-]+:\s*$|\Z)""", text)
-              body=m.group(1) if m else ""
-                            en=re.search(r"""(?m)^\s*enabled:\s*(true|false)""", body)
-                            tm=re.search(r"""(?m)^\s*time:\s*["']?(\d{2}:\d{2})["']?""", body)
-              if not en or en.group(1).lower()!="true": continue
-              if not tm: raise SystemExit(f"Invalid {action}.time")
-              h,mi=map(int,tm.group(1).split(":"))
-              target=now.replace(hour=h,minute=mi,second=0,microsecond=0)
-              if target<=now: target+=timedelta(days=1)
-              candidates.append((target,action,tm.group(1)))
-          if not candidates: raise SystemExit("No enabled stop/start schedule is configured.")
-          target,action,value=min(candidates)
-          seconds=int(max(0,(target-now).total_seconds()))
-          print(f"Current IST time: {now:%Y-%m-%d %H:%M:%S}")
-          print(f"Next action: {action} at {value} IST ({target:%Y-%m-%d %H:%M:%S})")
-          if seconds>6*60*60:
-              raise SystemExit(f"Next configured time is {seconds/3600:.2f} hours away. GitHub-hosted waiting is limited to six hours; choose a nearer time or trigger again.")
-          with open(os.environ["GITHUB_OUTPUT"],"a") as out:
-              out.write(f"action={action}\\nconfigured_time={value}\\n")
-          if seconds:
-              print(f"Waiting {seconds} seconds...")
-              time.sleep(seconds)
-          print("Configured time reached.")
-          PY
+          python3 scripts/schedule_wait.py
 
       - name: Validate credentials and configuration
         shell: bash
