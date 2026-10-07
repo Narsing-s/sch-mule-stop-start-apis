@@ -178,6 +178,7 @@ def resolve_targets(requested):
     available_envs = list_environments()
     resolved_requested = []
     auto_requested = []
+    skipped = []
     for name, environment, region in requested:
         if environment.lower() == "auto": auto_requested.append((name, region))
         else: resolved_requested.append((name, resolve_environment_name(environment, available_envs), region))
@@ -195,9 +196,7 @@ def resolve_targets(requested):
             unique = {e.lower(): e for _,e,_ in matches}
             if len(unique) != 1:
                 if not matches:
-                    skipped = getattr(resolve_targets, "_skipped", [])
                     skipped.append({"api": name, "environment": "auto", "region": region, "reason": "API not found in any accessible Anypoint environment; skipped"})
-                    resolve_targets._skipped = skipped
                     print(f"[SKIP] API {name} could not be found in any accessible Anypoint environment.", flush=True)
                     continue
                 raise RuntimeError("API %s was found in multiple Anypoint environments: %s; configure its environment explicitly." % (name, ", ".join(unique.values())))
@@ -207,7 +206,7 @@ def resolve_targets(requested):
         if region == "auto": region = "all"
         if region != "all" and region not in REGIONS: raise RuntimeError(f"Invalid resolved region {region} for {name}.")
         by_environment.setdefault(environment.lower(), []).append((name, environment, region))
-    resolved, missing, skipped = [], [], []
+    resolved, missing = [], []
     seen_ids = set()
     for entries in by_environment.values():
         environment = entries[0][1]
