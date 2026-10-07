@@ -75,7 +75,7 @@ jobs:
           {
             echo "## MuleSoft Scheduler Registration"
             echo ""
-            echo "- Source: `config/schedules.yml`"
+            echo "- Source: config/schedules.yml"
             echo "- Timezone: **Asia/Kolkata**"
             echo "- Business schedule format: **24-hour HH:MM**"
             echo "- Automatic polling: **disabled**"
