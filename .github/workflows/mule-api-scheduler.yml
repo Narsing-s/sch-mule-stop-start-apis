@@ -46,16 +46,16 @@ jobs:
           from zoneinfo import ZoneInfo
           import os, re, time
           text=Path("config/schedules.yml").read_text(encoding="utf-8")
-          tz=re.search(r'(?m)^\\s*timezone:\\s*["\\']?([^\\r\\n"\\']+)["\\']?\\s*$',text)
+                    tz=re.search(r"""(?m)^\s*timezone:\s*["']?([^\r\n"']+)["']?\s*$""", text)
           if (tz.group(1).strip() if tz else "Asia/Kolkata") != "Asia/Kolkata":
               raise SystemExit("Only Asia/Kolkata is supported.")
           now=datetime.now(ZoneInfo("Asia/Kolkata"))
           candidates=[]
           for action in ("stop","start"):
-              m=re.search(rf'(?ms)^{action}:\\s*\\n(.*?)(?=^[A-Za-z0-9_-]+:\\s*$|\\Z)',text)
+                            m=re.search(rf"""(?ms)^{action}:\s*\n(.*?)(?=^[A-Za-z0-9_-]+:\s*$|\Z)""", text)
               body=m.group(1) if m else ""
-              en=re.search(r'(?m)^\\s*enabled:\\s*(true|false)',body)
-              tm=re.search(r'(?m)^\\s*time:\\s*["\\']?(\\d{2}:\\d{2})["\\']?',body)
+                            en=re.search(r"""(?m)^\s*enabled:\s*(true|false)""", body)
+                            tm=re.search(r"""(?m)^\s*time:\s*["']?(\d{2}:\d{2})["']?""", body)
               if not en or en.group(1).lower()!="true": continue
               if not tm: raise SystemExit(f"Invalid {action}.time")
               h,mi=map(int,tm.group(1).split(":"))
