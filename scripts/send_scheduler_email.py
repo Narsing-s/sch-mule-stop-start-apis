@@ -58,7 +58,7 @@ def main() -> int:
     context = ssl.create_default_context()
     if security == "ssl":
         with smtplib.SMTP_SSL(host, port, context=context, timeout=30) as server:
-            server.login(username, password); server.send_message(msg)
+            server.login(username, password); server.send_message(msg, from_addr=sender, to_addrs=recipients)
     else:
         with smtplib.SMTP(host, port, timeout=30) as server:
             server.ehlo(); server.starttls(context=context); server.ehlo(); server.login(username, password); server.send_message(msg)
