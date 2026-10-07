@@ -137,8 +137,6 @@ def resolve_targets(requested):
     auto_names = {name.lower(): name for name, env, region in requested if env.lower() == "auto"}
     explicit = [x for x in requested if x[1].lower() != "auto"]
     if auto_names:
-        if any(region == "auto" for _, _, region in requested if _ in auto_names.values()):
-            pass
         discovered = []
         for environment in list_environments():
             try:
