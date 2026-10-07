@@ -103,6 +103,7 @@ def dispatch_next_cycle() -> None:
     print("Queued next scheduler cycle with workflow_dispatch.", flush=True)
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
         out.write("handoff=true\n")
+        out.write(f"business_group={business_group}\n")
         out.write("action=\n")
         out.write("configured_time=\n")
 
@@ -118,6 +119,7 @@ if seconds > HANDOFF_AFTER_SECONDS:
 
 with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
     out.write("handoff=false\n")
+    out.write(f"business_group={business_group}\n")
     out.write(f"action={action}\n")
     out.write(f"configured_time={configured_time}\n")
 
