@@ -89,6 +89,13 @@ jobs:
           npm install --global anypoint-cli-v4-public
           anypoint-cli-v4 --version
 
+      - name: Validate scheduler controller before touching Mule applications
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/mule_control.py scripts/schedule_wait.py scripts/send_scheduler_email.py
+          echo "::notice::Scheduler Python controllers passed syntax validation."
+
       - name: Verify Connected App authentication
         shell: bash
         run: |
