@@ -23,8 +23,11 @@ HANDOFF_AFTER_SECONDS = 4 * 60 * 60 + 45 * 60
 text = CONFIG.read_text(encoding="utf-8")
 tz_match = re.search(r'^\s*timezone:\s*["\']?([^\r\n"\']+)["\']?\s*$', text, re.MULTILINE)
 timezone = (tz_match.group(1).strip() if tz_match else TZ_NAME)
-bg_match = re.search(r'^\\s*business_group:\\s*[\"\']?([^\\r\\n\"\']+)[\"\']?\\s*if timezone != TZ_NAME:
-    raise SystemExit(f"Only {TZ_NAME} is supported; found {timezone!r}.")
+bg_match = re.search(r'^\s*business_group:\s*["\']?([^\r\n"\']+)["\']?\s*$', text, re.MULTILINE)
+business_group = (bg_match.group(1).strip() if bg_match else "Learning")
+if not business_group:
+    business_group = "Learning"
+if timezone != TZ_NAME:
 
 now = datetime.now(ZoneInfo(TZ_NAME))
 candidates = []
