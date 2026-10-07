@@ -13,7 +13,7 @@ from pathlib import Path
 GROUPS = ("eapi", "papi", "sapi", "other")
 REGIONS = ("west", "westb", "east")
 POLL_SECONDS = int(os.getenv("MULE_POLL_SECONDS", "10"))
-TIMEOUT_SECONDS = int(os.getenv("MULE_TIMEOUT_SECONDS", "1200"))
+TIMEOUT_SECONDS = int(os.getenv("MULE_TIMEOUT_SECONDS", "1800"))
 
 @dataclass(frozen=True)
 class Application:
@@ -179,6 +179,7 @@ def main() -> int:
     print(f"Using Anypoint environment: {environment}", flush=True)
     applications = resolve_targets(load_targets(group, region))
     failures = 0
+    print(f"Waiting until ALL {len(applications)} configured applications are {'STARTED' if action == 'start' else 'STOPPED'} and APPLIED before completing the workflow.", flush=True)
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(12, max(1, len(applications)))) as executor:
         for future in concurrent.futures.as_completed([executor.submit(control, app, action) for app in applications]):
             app, ok, message = future.result()
@@ -186,8 +187,13 @@ def main() -> int:
             print(f"[{status}] [{app.group.upper()}/{app.region.upper()}] {app.name}: {message}", flush=True)
             if not ok:
                 failures += 1
-    print(f"Completed: total={len(applications)}, success={len(applications)-failures}, failures={failures}", flush=True)
-    return 1 if failures else 0
+    success_count = len(applications) - failures
+    print(f"Completed: total={len(applications)}, success={success_count}, failures={failures}", flush=True)
+    if failures:
+        print("Workflow will remain failed; not all applications reached the requested state.", file=sys.stderr, flush=True)
+        return 1
+    print(f"ALL {len(applications)} applications reached the requested {action.upper()} state. Safe to finish workflow.", flush=True)
+    return 0
 
 if __name__ == "__main__":
     raise SystemExit(main())
