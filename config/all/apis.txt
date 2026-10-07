@@ -19,3 +19,10 @@ loan-scheduler | auto | auto
 intrest-calculator-api | auto | auto
 downloadflow-emp-excel-file | auto | auto
 calculator-api | auto | auto
+dream-bank-sapi | dev | auto
+integration-with-ai-api | dev | auto
+monthly-bank-satement-generate-api | dev | auto
+universal-banking-birthday-wishes | dev | auto
+
+
+
