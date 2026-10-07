@@ -4,7 +4,7 @@ timezone: Asia/Kolkata
 
 stop:
   enabled: true
-  time: "08:55"
+  time: "09:00"
 
 start:
   enabled: true
