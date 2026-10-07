@@ -1,6 +1,6 @@
 # 🚀 MuleSoft API Auto Start / Stop Scheduler
 
-> **Production-oriented GitHub Actions scheduler for controlling MuleSoft CloudHub 2.0 applications with configurable timing, environment selection, Business Group support, state verification, and execution analytics.**
+> **Production-oriented GitHub Actions scheduler for controlling MuleSoft CloudHub 2.0 applications with configurable timing, Sandbox environment selection, Business Group support, state verification, and execution analytics.**
 
 [![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-Automated-2088FF?logo=githubactions&logoColor=white)](../../actions)
 [![MuleSoft](https://img.shields.io/badge/MuleSoft-CloudHub%202.0-00A1DF)](https://www.mulesoft.com/)
@@ -24,7 +24,7 @@ Instead of using a fixed cron schedule, the workflow is designed around the repo
 | ⏳ Wait-before-run | The workflow waits until the configured execution time |
 | 🌎 Timezone | Supports `Asia/Kolkata` / IST |
 | 🏢 Business Groups | Business Group is configurable; it is not hardcoded |
-| 🌐 Environments | Supports Sandbox, Development, QA, Design and Production |
+| 🌐 Environment | GitHub Actions runs in the `sandbox` GitHub Environment and auto-selects the accessible Anypoint Sandbox environment |
 | 🎯 API groups | EAPI, PAPI, SAPI or all |
 | 🔄 Start / Stop | Controls selected MuleSoft applications |
 | 🔎 State verification | Waits for the requested deployment/desired state |
@@ -161,15 +161,15 @@ Blank lines and comments are ignored, and duplicate application names are remove
 
 ## 🌍 Environment model
 
-The scheduler supports:
+The current workflow is intentionally aligned to the tested **Sandbox** path. The GitHub Actions job uses the GitHub Environment:
 
-- `sandbox`
-- `dev`
-- `qa`
-- `design`
-- `prod`
+```text
+sandbox
+```
 
-Create the corresponding GitHub Environments and configure credentials separately where required.
+After Connected App authentication, the workflow queries Anypoint Platform and automatically selects the accessible environment whose name/type is `Sandbox`. It refuses to guess when there are multiple ambiguous matches.
+
+The UI therefore does **not** maintain a second environment selector. The environment shown in the UI is informational and reflects the actual workflow behavior.
 
 ### Required secrets
 
@@ -183,19 +183,7 @@ ANYPOINT_ORG_ID
 
 ### Environment selection
 
-Configure the exact Anypoint Platform environment name using:
-
-```text
-ANYPOINT_ENVIRONMENT
-```
-
-Optional:
-
-```text
-ANYPOINT_HOST
-```
-
-If `ANYPOINT_HOST` is not supplied, the workflow uses:
+The workflow selects Sandbox automatically. `ANYPOINT_HOST` is optional and defaults to:
 
 ```text
 anypoint.mulesoft.com
@@ -249,6 +237,31 @@ This means changing the configured execution time does not require editing a Git
 
 ---
 
+## 🖥️ UI control center
+
+The root `index.html` is the canonical UI. The older `ui/index.html` path now redirects to it so there is only one control-plane implementation.
+
+The UI does not call MuleSoft directly. It uses the same GitHub Actions workflow as the Actions tab:
+
+```text
+UI schedule save
+  → commit config/schedules.yml to main
+  → push trigger
+  → schedule_wait.py
+  → wait for configured IST time
+  → mule_control.py
+  → verify CloudHub state
+  → analytics + email
+
+UI START/STOP
+  → workflow_dispatch
+  → same workflow
+  → same mule_control.py
+  → same verification + analytics + email
+```
+
+API configuration edits also commit the repository's `config/*/*/apis.txt` files, which are included in the workflow push trigger.
+
 ## ▶️ Manual execution
 
 Open:
@@ -258,7 +271,7 @@ Open:
 Available controls include:
 
 - **Action:** `start`, `stop`, or scheduler flow where supported
-- **Group:** `all`, `eapi`, `papi`, `sapi`
+- **Group:** `all`, `eapi`, `papi`, `sapi`, `other`
 - **Region:** configurable target region where applicable
 - **Business Group:** selected rather than hardcoded
 
