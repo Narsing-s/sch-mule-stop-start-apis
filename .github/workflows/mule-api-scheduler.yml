@@ -4,9 +4,9 @@ run-name: "MuleSoft API Scheduler - automatic"
 
 on:
   schedule:
-    # Generated from config/schedules.yml.
+    # Registered from config/schedules.yml.
     # User-facing business times remain normal 24-hour IST.
-    - cron: "40 9 * * *"
+    - cron: "45 9 * * *"
       timezone: "Asia/Kolkata"
     - cron: "0 10 * * *"
       timezone: "Asia/Kolkata"
@@ -163,5 +163,5 @@ jobs:
             echo "| Region | **ALL** |"
             echo "| Action | **${MULE_ACTION^^}** |"
             echo "| Schedule source | **config/schedules.yml (24-hour IST)** |"
-            echo "| Automatic trigger | **Exact registered IST schedule; no polling** |"
+            echo "| Automatic trigger | **Registered IST schedule; no polling** |"
           } >> "$GITHUB_STEP_SUMMARY"
