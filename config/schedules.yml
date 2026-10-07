@@ -1,5 +1,6 @@
 # 24-hour IST schedule. Any minute from 00:00 through 23:59 is valid.
 # Change these times without editing the GitHub Actions workflow.
+# Automatic scheduler trigger: this config push starts the waiting workflow immediately.
 timezone: Asia/Kolkata
 
 stop:
