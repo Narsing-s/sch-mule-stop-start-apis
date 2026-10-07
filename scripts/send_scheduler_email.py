@@ -62,7 +62,7 @@ def main() -> int:
             server.login(username, password); server.send_message(msg, from_addr=sender, to_addrs=recipients)
     else:
         with smtplib.SMTP(host, port, timeout=30) as server:
-            server.ehlo(); server.starttls(context=context); server.ehlo(); server.login(username, password); server.send_message(msg)
+            server.ehlo(); server.starttls(context=context); server.ehlo(); server.login(username, password); server.send_message(msg, from_addr=sender, to_addrs=recipients)
     print(f"Scheduler email alert sent to {recipient}.", flush=True)
     return 0
 
