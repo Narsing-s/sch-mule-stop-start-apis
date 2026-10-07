@@ -79,7 +79,7 @@ def dispatch_next_cycle() -> None:
 
     payload = json.dumps({
         "ref": "main",
-        "inputs": {"action": "schedule", "group": "all", "region": "all"},
+        "inputs": {"action": "schedule", "group": "all", "region": "all", "business_group": business_group},
     }).encode("utf-8")
     request = urllib.request.Request(
         url,
