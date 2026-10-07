@@ -195,6 +195,34 @@ def main() -> int:
     total_duration = time.monotonic() - execution_started
     print(f"Completed: total={len(applications)}, success={success_count}, failures={failures}, elapsed={total_duration:.1f}s", flush=True)
 
+    analytics_path = os.getenv("MULE_ANALYTICS_FILE", "mule-execution-analytics.json")
+    analytics = {
+        "action": action,
+        "business_group": os.getenv("ANYPOINT_BG", ""),
+        "environment": environment,
+        "group": group,
+        "region": region,
+        "total": len(applications),
+        "successful": success_count,
+        "failed": failures,
+        "total_duration_seconds": round(total_duration, 1),
+        "poll_interval_seconds": POLL_SECONDS,
+        "results": [
+            {
+                "group": app.group,
+                "region": app.region,
+                "api": app.name,
+                "result": "SUCCESS" if ok else "FAILED",
+                "final_state": message,
+                "duration_seconds": round(duration, 1),
+            }
+            for app, ok, message, duration in sorted(results, key=lambda x: (x[0].group, x[0].region, x[0].name.lower()))
+        ],
+    }
+    with open(analytics_path, "w", encoding="utf-8") as analytics_file:
+        json.dump(analytics, analytics_file, indent=2)
+    print(f"Execution analytics written to {analytics_path}", flush=True)
+
     summary_file = os.getenv("GITHUB_STEP_SUMMARY")
     if summary_file:
         with open(summary_file, "a", encoding="utf-8") as summary:
