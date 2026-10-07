@@ -95,67 +95,49 @@ Instead of using a fixed cron schedule, the workflow is designed around the repo
 
 ```text
 sch-mule-stop-start-apis/
-├── .github/
-│   └── workflows/
-│       └── mule-api-scheduler.yml
-│
+├── .github/workflows/mule-api-scheduler.yml
 ├── config/
-│   ├── eapi/
+│   ├── all/
 │   │   └── apis.txt
-│   ├── papi/
-│   │   └── apis.txt
-│   └── sapi/
-│       └── apis.txt
-│
+│   └── schedules.yml
 ├── scripts/
 │   ├── mule_control.py
 │   ├── schedule_wait.py
 │   └── send_scheduler_email.py
-│
-└── README.md
+├── index.html
+├── app.js
+└── styles.css
 ```
 
 ---
 
 ## ⚙️ API configuration
 
-Applications are controlled only when they are explicitly listed in the API-group files.
-
-### EAPI
+All APIs are maintained in one master inventory:
 
 ```text
-config/eapi/apis.txt
+config/all/apis.txt
 ```
 
-### PAPI
+Each row carries the API's own Anypoint environment and CloudHub region:
 
 ```text
-config/papi/apis.txt
+api-name | anypoint-environment | region
 ```
 
-### SAPI
+Example:
 
 ```text
-config/sapi/apis.txt
+customer-api | Sandbox | west
+orders-api | Development | east
+payments-api | Production | westb
 ```
 
-Both formats are supported:
+All rows use the same configured Anypoint Business Group. The scheduler groups operations by environment and sends each CLI request to the environment recorded for that API.
 
-```text
-customer-eapi
-order-eapi
-payment-eapi
-```
+For migration, `auto` is accepted for the environment and/or region. An `auto` environment is searched across accessible Anypoint environments and must resolve to exactly one environment; replace it with the exact environment name for production use. An `auto` region is treated as all regions and should be replaced with the actual region when known.
 
-or:
-
-```text
-customer-eapi,order-eapi,payment-eapi
-```
-
-Blank lines and comments are ignored, and duplicate application names are removed.
-
-> **Important:** The scheduler does not guess application names. If an application is missing from configuration, it is not controlled.
+> **Important:** The scheduler never assumes that every API is in Sandbox. Environment selection is per API from `config/all/apis.txt`.
 
 ---
 
