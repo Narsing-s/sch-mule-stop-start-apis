@@ -47,7 +47,7 @@ on:
       business_group:
         description: "Anypoint Business Group name or ID"
         required: true
-        default: "Learning"
+        default: ""
         type: string
 
 permissions:
@@ -81,7 +81,7 @@ jobs:
           if [ "$requested_action" = "start" ] || [ "$requested_action" = "stop" ]; then
             echo "action=$requested_action" >> "$GITHUB_OUTPUT"
             echo "configured_time=NOW" >> "$GITHUB_OUTPUT"
-            echo "business_group=${{ inputs.business_group || 'Learning' }}" >> "$GITHUB_OUTPUT"
+            echo "business_group=${{ inputs.business_group }}" >> "$GITHUB_OUTPUT"
             echo "Manual action requested: $requested_action"
           else
             python3 scripts/schedule_wait.py
@@ -127,7 +127,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bg="${{ steps.schedule.outputs.business_group || inputs.business_group || 'Learning' }}"
+          bg="${{ steps.schedule.outputs.business_group || inputs.business_group }}"
           echo "ANYPOINT_BG=$bg" >> "$GITHUB_ENV"
           echo "ANYPOINT_ORG=$bg" >> "$GITHUB_ENV"
           echo "::notice::Selected Anypoint Business Group: $bg"
@@ -205,7 +205,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "Completed scheduled action; queueing the next daily cycle with workflow_dispatch."
-          gh workflow run mule-api-scheduler.yml --repo "${{ github.repository }}" --ref main             -f action=schedule -f group=all -f region=all -f business_group="${{ steps.schedule.outputs.business_group || inputs.business_group || 'Learning' }}"
+          gh workflow run mule-api-scheduler.yml --repo "${{ github.repository }}" --ref main             -f action=schedule -f group=all -f region=all -f business_group="${{ steps.schedule.outputs.business_group || inputs.business_group }}"
           echo "::notice::Next daily scheduler cycle queued."
 
       - name: Publish execution summary
@@ -219,7 +219,7 @@ jobs:
             echo "| Setting | Value |"
             echo "|---|---|"
             echo "| Environment | **sandbox** |"
-            echo "| Business Group | **${{ steps.schedule.outputs.business_group || inputs.business_group || 'Learning' }}** |"
+            echo "| Business Group | **${{ steps.schedule.outputs.business_group || inputs.business_group }}** |"
             echo "| Anypoint environment | **${ANYPOINT_ENV:-unknown}** |"
             echo "| Action | **${MULE_ACTION^^}** |"
             echo "| Configured time | **${CONFIGURED_TIME} IST** |"
