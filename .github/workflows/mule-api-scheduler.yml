@@ -189,6 +189,22 @@ jobs:
           echo "Executing STOP action for group=${MULE_GROUP}, region=${MULE_REGION}"
           python3 scripts/mule_control.py
 
+      - name: Email execution analytics
+        if: ${{ always() && steps.schedule.outputs.handoff != 'true' && (steps.schedule.outputs.action == 'start' || steps.schedule.outputs.action == 'stop') }}
+        continue-on-error: true
+        env:
+          ALERT_EMAIL_TO: ${{ vars.ALERT_EMAIL_TO }}
+          ALERT_EMAIL_FROM: ${{ vars.ALERT_EMAIL_FROM }}
+          SMTP_HOST: ${{ vars.SMTP_HOST }}
+          SMTP_PORT: ${{ vars.SMTP_PORT || '587' }}
+          SMTP_SECURITY: ${{ vars.SMTP_SECURITY || 'starttls' }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          MULE_ANALYTICS_FILE: mule-execution-analytics.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/send_scheduler_email.py
       - name: Reject invalid scheduled action
         if: ${{ steps.schedule.outputs.handoff != 'true' && steps.schedule.outputs.action != 'start' && steps.schedule.outputs.action != 'stop' }}
         shell: bash
