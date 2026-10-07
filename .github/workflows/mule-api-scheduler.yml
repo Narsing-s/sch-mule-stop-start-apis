@@ -113,15 +113,25 @@ jobs:
             exit 1
           fi
           echo "::notice::Connected App authentication successful (HTTP 200)."
+          echo "::group::Verify Anypoint CLI can authenticate"
+          anypoint-cli-v4 account:environment:list --organization "$ANYPOINT_ORG" --client_id "$ANYPOINT_CLIENT_ID" --client_secret "$ANYPOINT_CLIENT_SECRET" --output json >/tmp/anypoint-environments.json
+          echo "::notice::Anypoint CLI authentication and organization access verified."
+          echo "::endgroup::"
 
       - name: Set selected Business Group
         shell: bash
         run: |
           set -euo pipefail
           bg="${{ steps.schedule.outputs.business_group || inputs.business_group }}"
+          if [[ -z "$bg" ]]; then
+            echo "::error::Business Group is required."
+            exit 1
+          fi
+          # ANYPOINT_ORG remains the Connected App Anypoint organization ID.
+          # ANYPOINT_BG is the logical Business Group label used by the scheduler.
           echo "ANYPOINT_BG=$bg" >> "$GITHUB_ENV"
-          echo "ANYPOINT_ORG=$bg" >> "$GITHUB_ENV"
           echo "::notice::Selected Anypoint Business Group: $bg"
+          echo "::notice::Anypoint organization ID remains sourced from GitHub Environment secret ANYPOINT_ORG_ID."
 
       - name: Start configured applications
         if: ${{ steps.schedule.outputs.action == 'start' }}
