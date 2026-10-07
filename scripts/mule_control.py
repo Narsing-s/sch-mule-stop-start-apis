@@ -28,7 +28,8 @@ def cli(environment: str, *args: str) -> subprocess.CompletedProcess[str]:
     business_group = os.getenv("ANYPOINT_BG", "").strip()
     if business_group:
         command.extend(["--organization", business_group])
-    command.extend(["--environment", environment])
+    if environment:
+        command.extend(["--environment", environment])
     return subprocess.run(command, text=True, capture_output=True, check=False)
 
 def parse_json(output: str) -> object:
@@ -133,41 +134,45 @@ def list_environments() -> list[str]:
         raise RuntimeError("No accessible Anypoint environments were returned for the Business Group.")
     return names
 
+ENV_ALIASES = {"dev": ("dev","development"), "development": ("dev","development"), "qa": ("qa","quality","test"), "test": ("test","qa"), "prod": ("prod","production"), "production": ("prod","production"), "sandbox": ("sandbox",), "design": ("design",)}
+
+def resolve_environment_name(requested, available):
+    exact = next((x for x in available if x.lower() == requested.lower()), None)
+    if exact: return exact
+    aliases = ENV_ALIASES.get(requested.lower(), (requested.lower(),))
+    matches = [x for x in available if x.lower() in aliases or any(a in x.lower() for a in aliases)]
+    if len(matches) == 1: return matches[0]
+    if len(matches) > 1: raise RuntimeError(f"Environment {requested!r} is ambiguous: {", ".join(matches)}")
+    raise RuntimeError(f"Anypoint environment {requested!r} was not found. Available: {", ".join(available)}")
+
 def resolve_targets(requested):
-    auto_names = {name.lower(): name for name, env, region in requested if env.lower() == "auto"}
-    explicit = [x for x in requested if x[1].lower() != "auto"]
-    if auto_names:
+    available_envs = list_environments()
+    resolved_requested = []
+    auto_requested = []
+    for name, environment, region in requested:
+        if environment.lower() == "auto": auto_requested.append((name, region))
+        else: resolved_requested.append((name, resolve_environment_name(environment, available_envs), region))
+    if auto_requested:
         discovered = []
-        for environment in list_environments():
-            try:
-                available = list_applications(environment)
-            except RuntimeError:
-                continue
+        for environment in available_envs:
+            try: available = list_applications(environment)
+            except RuntimeError as exc:
+                print(f"[WARN] Could not list applications in {environment}: {exc}", flush=True); continue
             by_name = {app.name.lower(): app for app in available}
-            for key, original_name in auto_names.items():
-                app = by_name.get(key)
-                if app:
-                    discovered.append((original_name, environment, "auto"))
-        matches = {}
-        for name, env, region in discovered:
-            matches.setdefault(name.lower(), []).append((name, env, region))
-        for name, items in matches.items():
-            unique_envs = {env.lower() for _, env, _ in items}
-            if len(unique_envs) > 1:
-                raise RuntimeError(f"API {name} was found in multiple Anypoint environments; replace auto with an explicit environment.")
-            explicit.append(items[0])
-        for name in auto_names.values():
-            if name not in {x[0] for x in explicit}:
-                raise RuntimeError(f"API {name} could not be found in any accessible Anypoint environment.")
-
+            for name, region in auto_requested:
+                if name.lower() in by_name: discovered.append((name, environment, region))
+        for name, region in auto_requested:
+            matches = [(n,e,r) for n,e,r in discovered if n.lower() == name.lower()]
+            unique = {e.lower(): e for _,e,_ in matches}
+            if len(unique) != 1:
+                if not matches: raise RuntimeError(f"API {name} could not be found in any accessible Anypoint environment.")
+                raise RuntimeError(f"API {name} was found in multiple Anypoint environments: {", ".join(unique.values())}; configure its environment explicitly.")
+            resolved_requested.append(matches[0])
     by_environment = {}
-    for name, environment, region in explicit:
-        if region == "auto":
-            region = "all"
-        if region != "all" and region not in REGIONS:
-            raise RuntimeError(f"Invalid resolved region {region} for {name}.")
+    for name, environment, region in resolved_requested:
+        if region == "auto": region = "all"
+        if region != "all" and region not in REGIONS: raise RuntimeError(f"Invalid resolved region {region} for {name}.")
         by_environment.setdefault(environment.lower(), []).append((name, environment, region))
-
     resolved, missing, seen_ids = [], [], set()
     for entries in by_environment.values():
         environment = entries[0][1]
@@ -176,16 +181,42 @@ def resolve_targets(requested):
         by_id = {app.app_id: app for app in available}
         for name, env, region in entries:
             app = by_name.get(name.lower()) or by_id.get(name)
-            if not app:
-                missing.append(f"{env}/{region}:{name}")
-                continue
+            if not app: missing.append(f"{env}/{region}:{name}"); continue
             key = (env.lower(), app.app_id)
-            if key in seen_ids:
-                print(f"[WARN] Duplicate application: {env}/{app.name}; controlling once.", flush=True)
-                continue
-            seen_ids.add(key)
-            resolved.append(Application(app.name, env, region, app.app_id))
-    if missing:
-        raise RuntimeError("Application(s) not found: " + ", ".join(missing))
+            if key in seen_ids: continue
+            seen_ids.add(key); resolved.append(Application(app.name, env, region, app.app_id))
+    if missing: raise RuntimeError("Application(s) not found: " + ", ".join(missing))
     return resolved
+def write_analytics(action, business_group, applications, results, started, error=""):
+    path = Path(os.getenv("MULE_ANALYTICS_FILE", "mule-execution-analytics.json"))
+    failed = len(applications) - sum(1 for _, ok, _, _ in results)
+    if error: failed = max(failed, 1)
+    rows = [{"api": a.name, "business_group": business_group, "environment": a.environment, "region": a.region, "result": "SUCCESS" if ok else "FAILED", "final_state": msg, "duration_seconds": round(d,1)} for a,ok,msg,d in results]
+    if error and not rows: rows.append({"api":"*", "business_group":business_group, "environment":"*", "region":os.getenv("MULE_REGION","all"), "result":"FAILED", "final_state":error, "duration_seconds":round(time.monotonic()-started,1)})
+    data={"action":action,"business_group":business_group,"inventory":str(INVENTORY),"total":len(applications),"successful":max(0,len(applications)-failed),"failed":failed,"total_duration_seconds":round(time.monotonic()-started,1),"poll_interval_seconds":POLL_SECONDS,"environments":sorted({a.environment for a in applications},key=str.lower),"error":error,"results":rows}
+    path.write_text(json.dumps(data,indent=2),encoding="utf-8")
+    summary=os.getenv("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary,"a",encoding="utf-8") as f:
+            f.write("\n## Execution Analytics\n")
+            f.write(f"**{action.upper()} — {data["successful"]}/{data["total"]} successful; {data["failed"]} failed.**\n\n")
+            if error: f.write(f"**Error:** {error}\n\n")
+            f.write("| Environment | Region | API | Result | Final state | Duration |\n|---|---|---|---|---|---:|\n")
+            for row in rows: f.write(f"| {row["environment"]} | {row["region"].upper()} | {row["api"]} | {row["result"]} | {row["final_state"].replace("|","\\|")} | {row["duration_seconds"]}s |\n")
+    return data
+
+def main() -> int:
+    action=os.getenv("MULE_ACTION","").strip().lower(); region=os.getenv("MULE_REGION","all").strip().lower(); bg=os.getenv("ANYPOINT_BG","").strip(); started=time.monotonic(); applications=[]; results=[]
+    if action not in {"start","stop"}: write_analytics(action or "unknown",bg,[],[],started,"MULE_ACTION must be start or stop."); return 2
+    if not bg: write_analytics(action,bg,[],[],started,"ANYPOINT_BG is required."); return 2
+    try:
+        applications=resolve_targets(parse_inventory(region))
+        print(f"Business Group={bg}; controlling {len(applications)} APIs.",flush=True)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(12,max(1,len(applications)))) as executor:
+            for future in concurrent.futures.as_completed([executor.submit(control,a,action) for a in applications]):
+                results.append(future.result())
+        data=write_analytics(action,bg,applications,results,started)
+        return 1 if data["failed"] else 0
+    except Exception as exc:
+        print(f"::error::{exc}",file=sys.stderr); write_analytics(action,bg,applications,results,started,str(exc)); return 1
 
