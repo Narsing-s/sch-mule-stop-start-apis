@@ -193,7 +193,7 @@ jobs:
         if: ${{ always() && steps.schedule.outputs.handoff != 'true' && (steps.schedule.outputs.action == 'start' || steps.schedule.outputs.action == 'stop') }}
         continue-on-error: true
         env:
-          ALERT_EMAIL_TO: ${{ vars.ALERT_EMAIL_TO }}
+          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO || vars.ALERT_EMAIL_TO }}
           ALERT_EMAIL_FROM: ${{ vars.ALERT_EMAIL_FROM }}
           SMTP_HOST: ${{ vars.SMTP_HOST }}
           SMTP_PORT: ${{ vars.SMTP_PORT || '587' }}
