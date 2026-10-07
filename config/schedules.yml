@@ -4,6 +4,7 @@
 # Workflow implementation verified after scheduler repair.
 # Manual trigger test: 2026-10-07
 timezone: Asia/Kolkata
+business_group: "Learning"
 
 stop:
   enabled: true
