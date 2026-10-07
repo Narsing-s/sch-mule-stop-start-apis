@@ -26,8 +26,11 @@ def main() -> int:
     action = str(data.get("action", "unknown")).upper()
     failed = int(data.get("failed", 0))
     status = "SUCCESS" if failed == 0 else "FAILED"
-    subject = f"MuleSoft API Scheduler - {action} - {status}"
+    subject = f"MuleSoft API Scheduler - {action} #${{run_number}} — ${{environment}}"
     run_url = os.getenv("GITHUB_SERVER_URL", "https://github.com").rstrip("/") + "/" + os.getenv("GITHUB_REPOSITORY", "") + "/actions/runs/" + os.getenv("GITHUB_RUN_ID", "")
+    run_number = os.getenv("GITHUB_RUN_NUMBER", os.getenv("GITHUB_RUN_ID", ""))
+    environment = os.getenv("GITHUB_ENVIRONMENT", "sandbox").strip() or "sandbox"
+    subject = f"MuleSoft API Scheduler - {action} #{run_number} — {environment}"
     lines = [
         subject, "",
         f"Business Group: {data.get('business_group', '')}",
