@@ -1,87 +1,165 @@
 name: MuleSoft API Auto Start Stop
 
-run-name: "MuleSoft API Scheduler - automatic"
+run-name: "MuleSoft API Scheduler - queued automatic"
 
 on:
-  schedule:
-    # Generated automatically from config/schedules.yml.
-    # Users edit only normal 24-hour IST HH:MM values.
-    - cron: "55 9 * * *"
-      timezone: "Asia/Kolkata"
-    - cron: "20 10 * * *"
-      timezone: "Asia/Kolkata"
+  push:
+    branches:
+      - main
+    paths:
+      - "config/schedules.yml"
+      - "config/eapi/**"
+      - "config/papi/**"
+      - "config/sapi/**"
+      - "config/other/**"
 
 permissions:
   contents: read
 
 jobs:
-  control:
+  wait-for-configured-time:
     concurrency:
-      group: mule-api-scheduler-${{ matrix.environment }}
-      cancel-in-progress: false
-    name: "${{ matrix.environment }} / all / automatic"
+      group: mule-api-scheduler-wait-sandbox
+      cancel-in-progress: true
+    name: "sandbox / wait for configured IST time"
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        environment: [sandbox]
-        group: [all]
-    environment: ${{ matrix.environment }}
+    timeout-minutes: 360
+    environment: sandbox
     env:
       ANYPOINT_CLIENT_ID: ${{ secrets.ANYPOINT_CLIENT_ID }}
       ANYPOINT_CLIENT_SECRET: ${{ secrets.ANYPOINT_CLIENT_SECRET }}
       ANYPOINT_ORG: ${{ secrets.ANYPOINT_ORG_ID }}
       ANYPOINT_ENV: ${{ vars.ANYPOINT_ENVIRONMENT }}
       ANYPOINT_HOST: ${{ vars.ANYPOINT_HOST || 'anypoint.mulesoft.com' }}
-      MULE_GROUP: all
-      MULE_BUSINESS_GROUP: all
-      MULE_REGION: all
       SELECTED_ENVIRONMENT: sandbox
+    outputs:
+      action: ${{ steps.schedule.outputs.action }}
+      configured_time: ${{ steps.schedule.outputs.configured_time }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Resolve lifecycle action from current IST schedule
-        id: action
+      - name: Resolve configured IST time and wait
+        id: schedule
         shell: bash
-        env:
-          GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}
         run: |
           set -euo pipefail
-          echo "Registered schedule event: $GITHUB_EVENT_SCHEDULE"
-          TZ=Asia/Kolkata date
-          cat config/schedules.yml
-          python3 scripts/schedule_check.py config/schedules.yml "$GITHUB_EVENT_SCHEDULE"
-          action="$(cat /tmp/mule-scheduler-action)"
-          if [[ "$action" == "none" ]]; then
-            echo "::warning::Schedule does not match the current config; nothing will be executed."
-            echo "action=none" >> "$GITHUB_OUTPUT"
-            echo "MULE_ACTION=none" >> "$GITHUB_ENV"
-            exit 0
-          fi
-          echo "action=$action" >> "$GITHUB_OUTPUT"
-          echo "MULE_ACTION=$action" >> "$GITHUB_ENV"
-          echo "::notice::Registered lifecycle action: $action"
+
+          python3 - <<'PY'
+          from datetime import datetime, timedelta
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+          import os
+          import re
+          import time
+
+          path = Path("config/schedules.yml")
+          text = path.read_text(encoding="utf-8")
+
+          def section(name):
+              match = re.search(
+                  rf"(?ms)^{re.escape(name)}:\s*\n(.*?)(?=^[A-Za-z0-9_-]+:\s*$|\Z)",
+                  text,
+              )
+              return match.group(1) if match else ""
+
+          def setting(name, key, default=None):
+              body = section(name)
+              match = re.search(
+                  rf'''(?m)^\s*{re.escape(key)}:\s*["']?([^"']+)["']?\s*$''',
+                  body,
+              )
+              return match.group(1).strip() if match else default
+
+          timezone = re.search(
+              r'''(?m)^\s*timezone:\s*["']?([^"']+)["']?\s*$''', text
+          )
+          timezone = timezone.group(1).strip() if timezone else "Asia/Kolkata"
+
+          if timezone != "Asia/Kolkata":
+              raise SystemExit(
+                  f"Only Asia/Kolkata is supported; found {timezone!r}"
+              )
+
+          now = datetime.now(ZoneInfo("Asia/Kolkata"))
+          candidates = []
+
+          for action in ("stop", "start"):
+              enabled = setting(action, "enabled", "true").lower() in {
+                  "true", "yes", "1"
+              }
+              if not enabled:
+                  continue
+
+              value = setting(action, "time")
+              if not value or not re.fullmatch(r"\d{2}:\d{2}", value):
+                  raise SystemExit(f"Invalid {action}.time: {value!r}")
+
+              hour, minute = map(int, value.split(":"))
+              if hour > 23 or minute > 59:
+                  raise SystemExit(f"Invalid {action}.time: {value!r}")
+
+              target = now.replace(
+                  hour=hour, minute=minute, second=0, microsecond=0
+              )
+              if target <= now:
+                  target += timedelta(days=1)
+
+              candidates.append((target, action, value))
+
+          if not candidates:
+              raise SystemExit("No enabled stop/start schedule is configured.")
+
+          target, action, value = min(candidates)
+
+          seconds = max(0, int((target - now).total_seconds()))
+
+          print(f"Current IST time : {now:%Y-%m-%d %H:%M:%S}")
+          print(f"Configured action : {action}")
+          print(f"Configured time   : {value} IST")
+          print(f"Next execution    : {target:%Y-%m-%d %H:%M:%S} IST")
+          print(f"Wait seconds      : {seconds}")
+
+          # GitHub-hosted runners cannot safely be held indefinitely.
+          # The automatic waiter therefore supports waits up to six hours.
+          if seconds > 6 * 60 * 60:
+              raise SystemExit(
+                  f"Next configured time is {seconds / 3600:.2f} hours away. "
+                  "GitHub-hosted automatic waiting is limited to six hours."
+              )
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"action={action}\n")
+              out.write(f"configured_time={value}\n")
+
+          if seconds:
+              print(f"Waiting {seconds} seconds for {action}...")
+              time.sleep(seconds)
+
+          print(f"Reached configured time: {value} IST")
+          PY
 
       - name: Validate credentials and configuration
-        if: env.MULE_ACTION != 'none'
         shell: bash
         run: |
           set -euo pipefail
           for name in ANYPOINT_CLIENT_ID ANYPOINT_CLIENT_SECRET ANYPOINT_ORG ANYPOINT_ENV; do
             if [[ -z "${!name:-}" ]]; then
-              echo "::error::Missing $name in GitHub Environment '${{ matrix.environment }}'."
+              echo "::error::Missing $name in GitHub Environment 'sandbox'."
               exit 1
             fi
           done
-          for file in config/eapi/all/apis.txt config/eapi/west/apis.txt config/eapi/westb/apis.txt config/eapi/east/apis.txt config/papi/all/apis.txt config/papi/west/apis.txt config/papi/westb/apis.txt config/papi/east/apis.txt config/sapi/all/apis.txt config/sapi/west/apis.txt config/sapi/westb/apis.txt config/sapi/east/apis.txt config/other/all/apis.txt config/other/west/apis.txt config/other/westb/apis.txt config/other/east/apis.txt; do
+
+          for file in \
+            config/eapi/all/apis.txt config/eapi/west/apis.txt config/eapi/westb/apis.txt config/eapi/east/apis.txt \
+            config/papi/all/apis.txt config/papi/west/apis.txt config/papi/westb/apis.txt config/papi/east/apis.txt \
+            config/sapi/all/apis.txt config/sapi/west/apis.txt config/sapi/westb/apis.txt config/sapi/east/apis.txt \
+            config/other/all/apis.txt config/other/west/apis.txt config/other/westb/apis.txt config/other/east/apis.txt; do
             test -f "$file" || { echo "::error::Missing $file"; exit 1; }
           done
 
       - name: Install Anypoint CLI v4
-        if: env.MULE_ACTION != 'none'
         shell: bash
         run: |
           set -euo pipefail
@@ -89,79 +167,107 @@ jobs:
           anypoint-cli-v4 --version
 
       - name: Verify Connected App authentication
-        if: env.MULE_ACTION != 'none'
         shell: bash
         run: |
           set -euo pipefail
-          response="$(curl -sS -w '\n%{http_code}' -X POST "https://${ANYPOINT_HOST}/accounts/api/v2/oauth2/token" -H "Content-Type: application/x-www-form-urlencoded" --data-urlencode "grant_type=client_credentials" --data-urlencode "client_id=${ANYPOINT_CLIENT_ID}" --data-urlencode "client_secret=${ANYPOINT_CLIENT_SECRET}")"
+          response="$(curl -sS -w '\n%{http_code}' \
+            -X POST "https://${ANYPOINT_HOST}/accounts/api/v2/oauth2/token" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            --data-urlencode "grant_type=client_credentials" \
+            --data-urlencode "client_id=${ANYPOINT_CLIENT_ID}" \
+            --data-urlencode "client_secret=${ANYPOINT_CLIENT_SECRET}")"
+
           status="$(printf '%s\n' "$response" | tail -n1)"
           body="$(printf '%s\n' "$response" | sed '$d')"
+
           if [[ "$status" != "200" ]]; then
             message="$(printf '%s' "$body" | jq -r '.error_description // .message // .error // empty' 2>/dev/null || true)"
-            echo "::error::${{ matrix.environment }} Connected App authentication failed: HTTP $status $message"
+            echo "::error::sandbox Connected App authentication failed: HTTP $status $message"
             exit 1
           fi
+
           token="$(printf '%s' "$body" | jq -r '.access_token // empty')"
           [[ -n "$token" ]] || { echo "::error::No access_token returned."; exit 1; }
-          echo "::notice::${{ matrix.environment }} Connected App authentication successful."
+          echo "::notice::sandbox Connected App authentication successful."
 
       - name: Resolve exact Anypoint environment
-        if: env.MULE_ACTION != 'none'
         shell: bash
         run: |
           set -euo pipefail
           env -u ANYPOINT_ENV anypoint-cli-v4 account:environment:list --output json > /tmp/environments.json
-          python3 - "$GITHUB_ENV" "${{ matrix.environment }}" /tmp/environments.json <<'PY'
-          import json, sys
-          target = sys.argv[2].strip().lower()
-          with open(sys.argv[3], encoding='utf-8') as f:
+
+          python3 - "$GITHUB_ENV" /tmp/environments.json <<'PY'
+          import json
+          import sys
+
+          target = "sandbox"
+          with open(sys.argv[2], encoding="utf-8") as f:
               data = json.load(f)
+
           names, seen = [], set()
-          def walk(v):
-              if isinstance(v, dict):
-                  yield v
-                  for x in v.values(): yield from walk(x)
-              elif isinstance(v, list):
-                  for x in v: yield from walk(x)
+
+          def walk(value):
+              if isinstance(value, dict):
+                  yield value
+                  for child in value.values():
+                      yield from walk(child)
+              elif isinstance(value, list):
+                  for child in value:
+                      yield from walk(child)
+
           for obj in walk(data):
-              for key in ('name', 'environmentName'):
+              for key in ("name", "environmentName"):
                   value = obj.get(key)
                   if value:
                       name = str(value).strip()
                       if name and name.lower() not in seen:
                           seen.add(name.lower())
                           names.append(name)
-          matches = [n for n in names if n.lower() == target]
+
+          matches = [name for name in names if name.lower() == target]
           if not matches:
-              print(f"::error::Anypoint environment '{sys.argv[2]}' is not visible to this Connected App.")
-              print('Visible environments:')
-              for n in names:
-                  print('  - ' + n)
+              print(f"::error::Anypoint environment '{target}' is not visible to this Connected App.")
+              print("Visible environments:")
+              for name in names:
+                  print("  - " + name)
               raise SystemExit(2)
-          with open(sys.argv[1], 'a', encoding='utf-8') as f:
-              f.write('ANYPOINT_ENV=' + matches[0] + '\n')
-          print('Using exact Anypoint environment:', matches[0])
+
+          with open(sys.argv[1], "a", encoding="utf-8") as f:
+              f.write("ANYPOINT_ENV=" + matches[0] + "\n")
+
+          print("Using exact Anypoint environment:", matches[0])
           PY
 
       - name: Start or stop configured applications
-        if: env.MULE_ACTION != 'none'
         shell: bash
-        run: python3 scripts/mule_control.py
+        env:
+          MULE_ACTION: ${{ steps.schedule.outputs.action }}
+          MULE_GROUP: all
+          MULE_REGION: all
+        run: |
+          set -euo pipefail
+          echo "Executing configured action: ${MULE_ACTION}"
+          echo "Using the API lists from the checked-out repository configuration."
+          python3 scripts/mule_control.py
 
       - name: Publish execution summary
         if: always()
         shell: bash
+        env:
+          MULE_ACTION: ${{ steps.schedule.outputs.action }}
+          CONFIGURED_TIME: ${{ steps.schedule.outputs.configured_time }}
         run: |
           {
             echo "## MuleSoft API Scheduler"
             echo ""
             echo "| Setting | Value |"
             echo "|---|---|"
-            echo "| Environment | **${{ matrix.environment }}** |"
-            echo "| Anypoint environment | **${ANYPOINT_ENV}** |"
+            echo "| Environment | **sandbox** |"
+            echo "| Anypoint environment | **${ANYPOINT_ENV:-unknown}** |"
             echo "| API group | **ALL** |"
             echo "| Region | **ALL** |"
             echo "| Action | **${MULE_ACTION^^}** |"
-            echo "| Schedule source | **config/schedules.yml (24-hour IST)** |"
-            echo "| Automatic trigger | **Generated from config; no polling** |"
+            echo "| Configured time | **${CONFIGURED_TIME} IST** |"
+            echo "| Trigger | **Configuration/API-list push** |"
+            echo "| Scheduling model | **Starts immediately, waits for config time, then executes — no cron** |"
           } >> "$GITHUB_STEP_SUMMARY"
