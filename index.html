@@ -27,6 +27,7 @@
 <article class="card">
 <h2>Schedule</h2>
 <div class="two">
+<div><label>Business Group</label><select id="scheduleBg"><option value="Learning">Learning</option><option value="Pharma">Pharma</option><option value="main">Main / Root</option></select></div>
 <div><label>Stop</label><div class="inline"><input id="stopTime" type="time"><select id="stopEnabled"><option value="true">Enabled</option><option value="false">Disabled</option></select></div></div>
 <div><label>Start</label><div class="inline"><input id="startTime" type="time"><select id="startEnabled"><option value="true">Enabled</option><option value="false">Disabled</option></select></div></div>
 </div>
@@ -49,7 +50,7 @@
 </div>
 <div id="apiConfigMsg" class="status"></div>
 <div class="uploadMatrix" id="uploadMatrix"></div>
-</section><section class="card"><div class="sectionHead"><div><h2>START / STOP controls</h2><p class="muted">Select a group and region, then control all configured APIs in that scope immediately.</p></div></div><div class="two"><div><label>API group</label><select id="controlGroup"><option value="eapi">EAPI</option><option value="papi">PAPI</option><option value="sapi">SAPI</option><option value="other">Other</option><option value="all">All groups</option></select></div><div><label>Region</label><select id="controlRegion"><option value="all">All regions</option><option value="west">West</option><option value="westb">WestB</option><option value="east">East</option></select></div></div><div class="two actionPair"><button data-action="start" id="startScope" data-group="eapi" data-region="all">START selected APIs</button><button class="danger" data-action="stop" id="stopScope" data-group="eapi" data-region="all">STOP selected APIs</button></div></section>
+</section><section class="card"><div class="sectionHead"><div><h2>START / STOP controls</h2><p class="muted">Select a group and region, then control all configured APIs in that scope immediately.</p></div></div><div class="two"><div><label>Business Group</label><select id="controlBg"><option value="Learning">Learning</option><option value="Pharma">Pharma</option><option value="main">Main / Root</option></select></div><div><label>API group</label><select id="controlGroup"><option value="eapi">EAPI</option><option value="papi">PAPI</option><option value="sapi">SAPI</option><option value="other">Other</option><option value="all">All groups</option></select></div><div><label>Region</label><select id="controlRegion"><option value="all">All regions</option><option value="west">West</option><option value="westb">WestB</option><option value="east">East</option></select></div></div><div class="two actionPair"><button data-action="start" id="startScope" data-group="eapi" data-region="all">START selected APIs</button><button class="danger" data-action="stop" id="stopScope" data-group="eapi" data-region="all">STOP selected APIs</button></div></section>
 
 <section class="card">
 <div class="sectionHead"><div><h2>API inventory</h2><p class="muted">Configured applications across EAPI, PAPI, SAPI and Other, including regional configuration.</p></div><button id="refresh" class="secondary">Refresh</button></div>
