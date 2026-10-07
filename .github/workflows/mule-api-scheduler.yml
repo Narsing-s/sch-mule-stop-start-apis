@@ -13,6 +13,37 @@ on:
       - "config/sapi/**"
       - "config/other/**"
   workflow_dispatch:
+    inputs:
+      action:
+        description: "Action"
+        required: true
+        default: "schedule"
+        type: choice
+        options:
+          - schedule
+          - start
+          - stop
+      group:
+        description: "API group"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - eapi
+          - papi
+          - sapi
+          - other
+      region:
+        description: "CloudHub region"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - west
+          - westb
+          - east
 
 permissions:
   contents: read
@@ -40,7 +71,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/schedule_wait.py
+          requested_action="${{ inputs.action }}"
+          if [ "$requested_action" = "start" ] || [ "$requested_action" = "stop" ]; then
+            echo "action=$requested_action" >> "$GITHUB_OUTPUT"
+            echo "configured_time=NOW" >> "$GITHUB_OUTPUT"
+            echo "Manual action requested: $requested_action"
+          else
+            python3 scripts/schedule_wait.py
+          fi
 
       - name: Validate credentials and configuration
         shell: bash
@@ -116,8 +154,8 @@ jobs:
       - name: Start or stop configured applications
         env:
           MULE_ACTION: ${{ steps.schedule.outputs.action }}
-          MULE_GROUP: all
-          MULE_REGION: all
+          MULE_GROUP: ${{ inputs.group || 'all' }}
+          MULE_REGION: ${{ inputs.region || 'all' }}
         run: |
           set -euo pipefail
           echo "Executing configured action: ${MULE_ACTION}"
@@ -137,6 +175,8 @@ jobs:
             echo "| Anypoint environment | **${ANYPOINT_ENV:-unknown}** |"
             echo "| Action | **${MULE_ACTION^^}** |"
             echo "| Configured time | **${CONFIGURED_TIME} IST** |"
+            echo "| Group | **${MULE_GROUP:-all}** |"
+            echo "| Region | **${MULE_REGION:-all}** |"
             echo "| Scheduling model | **Immediate trigger + wait; no cron** |"
           } >> "$GITHUB_STEP_SUMMARY"
 
