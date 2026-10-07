@@ -371,6 +371,12 @@ def execute(applications: list[Application], action: str):
     return [results[(app.environment.lower(), app.app_id)] for app in applications]
 
 
+def control(app: Application, action: str):
+    """Compatibility entry point used by main(); execute one API lifecycle command."""
+    results = execute([app], action)
+    return results[0]
+
+
 def write_analytics(action, business_group, applications, results, started, error=""):
     path = Path(os.getenv("MULE_ANALYTICS_FILE", "mule-execution-analytics.json"))
     successful = sum(1 for _, ok, _, _ in results if ok)
