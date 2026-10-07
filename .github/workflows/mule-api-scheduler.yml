@@ -8,10 +8,7 @@ on:
       - main
     paths:
       - "config/schedules.yml"
-      - "config/eapi/**"
-      - "config/papi/**"
-      - "config/sapi/**"
-      - "config/other/**"
+      - "config/all/**"
   workflow_dispatch:
     inputs:
       action:
@@ -23,17 +20,6 @@ on:
           - schedule
           - start
           - stop
-      group:
-        description: "API group"
-        required: true
-        default: "all"
-        type: choice
-        options:
-          - all
-          - eapi
-          - papi
-          - sapi
-          - other
       region:
         description: "CloudHub region"
         required: true
@@ -56,7 +42,7 @@ permissions:
 
 jobs:
   run-scheduled-action:
-    name: "sandbox / wait for configured IST action"
+    name: "wait for configured IST action / per-API environments"
     runs-on: ubuntu-latest
     timeout-minutes: 360
     environment: sandbox
@@ -94,9 +80,7 @@ jobs:
           for name in ANYPOINT_CLIENT_ID ANYPOINT_CLIENT_SECRET ANYPOINT_ORG; do
             if [[ -z "${!name:-}" ]]; then echo "::error::Missing $name in GitHub Environment 'sandbox'."; exit 1; fi
           done
-          for file in config/eapi/all/apis.txt config/eapi/west/apis.txt config/eapi/westb/apis.txt config/eapi/east/apis.txt config/papi/all/apis.txt config/papi/west/apis.txt config/papi/westb/apis.txt config/papi/east/apis.txt config/sapi/all/apis.txt config/sapi/west/apis.txt config/sapi/westb/apis.txt config/sapi/east/apis.txt config/other/all/apis.txt config/other/west/apis.txt config/other/westb/apis.txt config/other/east/apis.txt; do
-            test -f "$file" || { echo "::error::Missing $file"; exit 1; }
-          done
+          test -f config/all/apis.txt || { echo "::error::Missing config/all/apis.txt"; exit 1; }
 
       - name: Install Anypoint CLI v4
         shell: bash
@@ -132,61 +116,24 @@ jobs:
           echo "ANYPOINT_ORG=$bg" >> "$GITHUB_ENV"
           echo "::notice::Selected Anypoint Business Group: $bg"
 
-      - name: Automatically select Sandbox Anypoint environment
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import json, os, subprocess
-          p=subprocess.run(["anypoint-cli-v4","account:environment:list","--output","json"],text=True,capture_output=True,check=False)
-          print(p.stdout)
-          if p.returncode: print(p.stderr); raise SystemExit(p.returncode)
-          data=json.loads(p.stdout); envs=[]
-          def walk(v):
-              if isinstance(v,dict):
-                  if "name" in v or "environmentName" in v: envs.append(v)
-                  for x in v.values(): walk(x)
-              elif isinstance(v,list):
-                  for x in v: walk(x)
-          walk(data)
-          def name(e): return str(e.get("name") or e.get("environmentName") or "").strip()
-          def typ(e): return str(e.get("type") or e.get("environmentType") or "").strip()
-          matches=[e for e in envs if name(e).lower()=="sandbox" or typ(e).lower()=="sandbox"]
-          unique=[]; seen=set()
-          for e in matches:
-              k=(name(e).lower(),str(e.get("id") or e.get("environmentId") or ""))
-              if k not in seen: seen.add(k); unique.append(e)
-          exact=[e for e in unique if name(e).lower()=="sandbox"]
-          if len(exact)==1: selected=exact[0]
-          elif len(unique)==1: selected=unique[0]
-          elif not unique: raise SystemExit("No accessible Anypoint Sandbox environment was found.")
-          else: raise SystemExit("Multiple accessible Sandbox environments found; refusing to guess.")
-          with open(os.environ["GITHUB_ENV"],"a") as out:
-              out.write("ANYPOINT_ENV="+name(selected)+"\n")
-              out.write("ANYPOINT_ENV_ID="+str(selected.get("id") or selected.get("environmentId") or "")+"\n")
-          print(f"::notice::Selected Sandbox Anypoint environment: {name(selected)}")
-          PY
-
       - name: Start configured applications
         if: ${{ steps.schedule.outputs.action == 'start' }}
         env:
           MULE_ACTION: start
-          MULE_GROUP: ${{ inputs.group || 'all' }}
           MULE_REGION: ${{ inputs.region || 'all' }}
         run: |
           set -euo pipefail
-          echo "Executing START action for group=${MULE_GROUP}, region=${MULE_REGION}"
+          echo "Executing START action for master inventory, region=${MULE_REGION}"
           python3 scripts/mule_control.py
 
       - name: Stop configured applications
         if: ${{ steps.schedule.outputs.action == 'stop' }}
         env:
           MULE_ACTION: stop
-          MULE_GROUP: ${{ inputs.group || 'all' }}
           MULE_REGION: ${{ inputs.region || 'all' }}
         run: |
           set -euo pipefail
-          echo "Executing STOP action for group=${MULE_GROUP}, region=${MULE_REGION}"
+          echo "Executing STOP action for master inventory, region=${MULE_REGION}"
           python3 scripts/mule_control.py
 
       - name: Email execution analytics
@@ -221,7 +168,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "Completed scheduled action; queueing the next daily cycle with workflow_dispatch."
-          gh workflow run mule-api-scheduler.yml --repo "${{ github.repository }}" --ref main -f action=schedule -f group=all -f region=all -f business_group="${{ steps.schedule.outputs.business_group || inputs.business_group }}"
+          gh workflow run mule-api-scheduler.yml --repo "${{ github.repository }}" --ref main -f action=schedule -f region=all -f business_group="${{ steps.schedule.outputs.business_group || inputs.business_group }}"
           echo "::notice::Next daily scheduler cycle queued."
       - name: Publish execution summary
         if: always()
@@ -233,12 +180,10 @@ jobs:
             echo "## MuleSoft API Scheduler"
             echo "| Setting | Value |"
             echo "|---|---|"
-            echo "| Environment | **sandbox** |"
+            echo "| GitHub Environment | **sandbox** (credentials only) |"
             echo "| Business Group | **${{ steps.schedule.outputs.business_group || inputs.business_group }}** |"
-            echo "| Anypoint environment | **${ANYPOINT_ENV:-unknown}** |"
             echo "| Action | **${MULE_ACTION^^}** |"
             echo "| Configured time | **${CONFIGURED_TIME} IST** |"
-            echo "| Group | **${MULE_GROUP:-all}** |"
             echo "| Region | **${MULE_REGION:-all}** |"
             echo "| Scheduling model | **Immediate trigger + wait; no cron** |"
           } >> "$GITHUB_STEP_SUMMARY"
