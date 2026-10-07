@@ -44,6 +44,11 @@ on:
           - west
           - westb
           - east
+      business_group:
+        description: "Anypoint Business Group name or ID"
+        required: true
+        default: "Learning"
+        type: string
 
 permissions:
   contents: read
@@ -76,6 +81,7 @@ jobs:
           if [ "$requested_action" = "start" ] || [ "$requested_action" = "stop" ]; then
             echo "action=$requested_action" >> "$GITHUB_OUTPUT"
             echo "configured_time=NOW" >> "$GITHUB_OUTPUT"
+            echo "business_group=${{ inputs.business_group || 'Learning' }}" >> "$GITHUB_OUTPUT"
             echo "Manual action requested: $requested_action"
           else
             python3 scripts/schedule_wait.py
@@ -116,6 +122,14 @@ jobs:
             exit 1
           fi
           echo "::notice::Connected App authentication successful (HTTP 200)."
+
+      - name: Set selected Business Group
+        shell: bash
+        run: |
+          set -euo pipefail
+          bg="${{ steps.schedule.outputs.business_group || inputs.business_group || 'Learning' }}"
+          echo "ANYPOINT_BG=$bg" >> "$GITHUB_ENV"
+          echo "::notice::Selected Anypoint Business Group: $bg"
 
       - name: Automatically select Sandbox Anypoint environment
         shell: bash
