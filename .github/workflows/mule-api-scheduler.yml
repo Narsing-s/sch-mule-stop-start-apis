@@ -152,16 +152,35 @@ jobs:
           print(f"::notice::Selected Sandbox Anypoint environment: {name(selected)}")
           PY
 
-      - name: Start or stop configured applications
-        if: ${{ steps.schedule.outputs.handoff != 'true' }}
+      - name: Start configured applications
+        if: ${{ steps.schedule.outputs.handoff != 'true' && steps.schedule.outputs.action == 'start' }}
         env:
-          MULE_ACTION: ${{ steps.schedule.outputs.action }}
+          MULE_ACTION: start
           MULE_GROUP: ${{ inputs.group || 'all' }}
           MULE_REGION: ${{ inputs.region || 'all' }}
         run: |
           set -euo pipefail
-          echo "Executing configured action: ${MULE_ACTION}"
+          echo "Executing START action for group=${MULE_GROUP}, region=${MULE_REGION}"
           python3 scripts/mule_control.py
+
+      - name: Stop configured applications
+        if: ${{ steps.schedule.outputs.handoff != 'true' && steps.schedule.outputs.action == 'stop' }}
+        env:
+          MULE_ACTION: stop
+          MULE_GROUP: ${{ inputs.group || 'all' }}
+          MULE_REGION: ${{ inputs.region || 'all' }}
+        run: |
+          set -euo pipefail
+          echo "Executing STOP action for group=${MULE_GROUP}, region=${MULE_REGION}"
+          python3 scripts/mule_control.py
+
+      - name: Reject invalid scheduled action
+        if: ${{ steps.schedule.outputs.handoff != 'true' && steps.schedule.outputs.action != 'start' && steps.schedule.outputs.action != 'stop' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::error::Scheduler resolved an invalid action: '${{ steps.schedule.outputs.action }}'. Expected start or stop."
+          exit 1
 
       - name: Queue next daily scheduler cycle
         if: ${{ steps.schedule.outputs.handoff != 'true' && (github.event_name == 'push' || inputs.action == 'schedule') }}
