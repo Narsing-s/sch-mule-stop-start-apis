@@ -1,8 +1,15 @@
 name: MuleSoft API Auto Start Stop
 
-run-name: "MuleSoft API Scheduler - ${{ github.event_name == 'schedule' && 'automatic' || inputs.action }}"
+run-name: "MuleSoft API Scheduler - ${{ github.event_name == 'schedule' && 'automatic' || github.event_name == 'push' && 'workflow-install-check' || inputs.action }}"
 
 on:
+  # Runs once when this workflow is committed/updated, proving GitHub Actions
+  # has discovered the workflow on the default branch. It never changes the
+  # business schedule; the normal IST times remain in config/schedules.yml.
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/mule-api-scheduler.yml"
   schedule:
     # Generic wake-up only. Business times are defined in config/schedules.yml (IST).
     - cron: "*/5 * * * *"
@@ -44,7 +51,7 @@ jobs:
     concurrency:
       group: mule-api-scheduler-${{ matrix.environment }}
       cancel-in-progress: false
-    name: "${{ matrix.environment }} / ${{ github.event_name == 'workflow_dispatch' && inputs.group || 'all' }} / ${{ github.event_name == 'workflow_dispatch' && inputs.action || 'automatic' }}"
+    name: "${{ matrix.environment }} / ${{ github.event_name == 'workflow_dispatch' && inputs.group || 'all' }} / ${{ github.event_name == 'workflow_dispatch' && inputs.action || github.event_name == 'push' && 'workflow-install-check' || 'automatic' }}"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -77,6 +84,11 @@ jobs:
           set -euo pipefail
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             action="$MANUAL_ACTION"
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            echo "Workflow discovery check: no MuleSoft lifecycle action will be executed."
+            echo "MULE_ACTION=none" >> "$GITHUB_ENV"
+            echo "action=none" >> "$GITHUB_OUTPUT"
+            exit 0
           else
             echo "Checking config/schedules.yml against current IST time..."
             date -u
