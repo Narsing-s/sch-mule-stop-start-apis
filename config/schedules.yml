@@ -14,5 +14,6 @@ start:
   time: "15:00"
 
 # Scheduler retry after automatic Sandbox environment selection fix.
+# No-cron handoff chain enabled.
 
 # Trigger after validation fix.
