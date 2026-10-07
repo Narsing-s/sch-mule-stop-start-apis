@@ -12,9 +12,11 @@ on:
       - "config/papi/**"
       - "config/sapi/**"
       - "config/other/**"
+  workflow_dispatch:
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
   wait-for-configured-time:
@@ -73,7 +75,7 @@ jobs:
               return match.group(1).strip() if match else default
 
           timezone = re.search(
-              r'''(?m)^\s*timezone:\s*["']?([^"']+)["']?\s*$''', text
+              r'''(?m)^\s*timezone:\s*["']?([^\r\n"']+)["']?\s*, text
           )
           timezone = timezone.group(1).strip() if timezone else "Asia/Kolkata"
 
@@ -271,3 +273,250 @@ jobs:
             echo "| Trigger | **Configuration/API-list push** |"
             echo "| Scheduling model | **Starts immediately, waits for config time, then executes — no cron** |"
           } >> "$GITHUB_STEP_SUMMARY"
+'', text
+          )
+          timezone = timezone.group(1).strip() if timezone else "Asia/Kolkata"
+
+          if timezone != "Asia/Kolkata":
+              raise SystemExit(
+                  f"Only Asia/Kolkata is supported; found {timezone!r}"
+              )
+
+          now = datetime.now(ZoneInfo("Asia/Kolkata"))
+          candidates = []
+
+          for action in ("stop", "start"):
+              enabled = setting(action, "enabled", "true").lower() in {
+                  "true", "yes", "1"
+              }
+              if not enabled:
+                  continue
+
+              value = setting(action, "time")
+              if not value or not re.fullmatch(r"\d{2}:\d{2}", value):
+                  raise SystemExit(f"Invalid {action}.time: {value!r}")
+
+              hour, minute = map(int, value.split(":"))
+              if hour > 23 or minute > 59:
+                  raise SystemExit(f"Invalid {action}.time: {value!r}")
+
+              target = now.replace(
+                  hour=hour, minute=minute, second=0, microsecond=0
+              )
+              if target <= now:
+                  target += timedelta(days=1)
+
+              candidates.append((target, action, value))
+
+          if not candidates:
+              raise SystemExit("No enabled stop/start schedule is configured.")
+
+          target, action, value = min(candidates)
+
+          seconds = max(0, int((target - now).total_seconds()))
+
+          print(f"Current IST time : {now:%Y-%m-%d %H:%M:%S}")
+          print(f"Configured action : {action}")
+          print(f"Configured time   : {value} IST")
+          print(f"Next execution    : {target:%Y-%m-%d %H:%M:%S} IST")
+          print(f"Wait seconds      : {seconds}")
+
+          # GitHub-hosted runners cannot safely be held indefinitely.
+          # The automatic waiter therefore supports waits up to six hours.
+          if seconds > 6 * 60 * 60:
+              raise SystemExit(
+                  f"Next configured time is {seconds / 3600:.2f} hours away. "
+                  "GitHub-hosted automatic waiting is limited to six hours."
+              )
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"action={action}\n")
+              out.write(f"configured_time={value}\n")
+
+          if seconds:
+              print(f"Waiting {seconds} seconds for {action}...")
+              time.sleep(seconds)
+
+          print(f"Reached configured time: {value} IST")
+          PY
+
+      - name: Validate credentials and configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in ANYPOINT_CLIENT_ID ANYPOINT_CLIENT_SECRET ANYPOINT_ORG ANYPOINT_ENV; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing $name in GitHub Environment 'sandbox'."
+              exit 1
+            fi
+          done
+
+          for file in \
+            config/eapi/all/apis.txt config/eapi/west/apis.txt config/eapi/westb/apis.txt config/eapi/east/apis.txt \
+            config/papi/all/apis.txt config/papi/west/apis.txt config/papi/westb/apis.txt config/papi/east/apis.txt \
+            config/sapi/all/apis.txt config/sapi/west/apis.txt config/sapi/westb/apis.txt config/sapi/east/apis.txt \
+            config/other/all/apis.txt config/other/west/apis.txt config/other/westb/apis.txt config/other/east/apis.txt; do
+            test -f "$file" || { echo "::error::Missing $file"; exit 1; }
+          done
+
+      - name: Install Anypoint CLI v4
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global anypoint-cli-v4-public
+          anypoint-cli-v4 --version
+
+      - name: Verify Connected App authentication
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl -sS -w '\n%{http_code}' \
+            -X POST "https://${ANYPOINT_HOST}/accounts/api/v2/oauth2/token" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            --data-urlencode "grant_type=client_credentials" \
+            --data-urlencode "client_id=${ANYPOINT_CLIENT_ID}" \
+            --data-urlencode "client_secret=${ANYPOINT_CLIENT_SECRET}")"
+
+          status="$(printf '%s\n' "$response" | tail -n1)"
+          body="$(printf '%s\n' "$response" | sed '$d')"
+
+          if [[ "$status" != "200" ]]; then
+            message="$(printf '%s' "$body" | jq -r '.error_description // .message // .error // empty' 2>/dev/null || true)"
+            echo "::error::sandbox Connected App authentication failed: HTTP $status $message"
+            exit 1
+          fi
+
+          token="$(printf '%s' "$body" | jq -r '.access_token // empty')"
+          [[ -n "$token" ]] || { echo "::error::No access_token returned."; exit 1; }
+          echo "::notice::sandbox Connected App authentication successful."
+
+      - name: Resolve exact Anypoint environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          env -u ANYPOINT_ENV anypoint-cli-v4 account:environment:list --output json > /tmp/environments.json
+
+          python3 - "$GITHUB_ENV" /tmp/environments.json <<'PY'
+          import json
+          import sys
+
+          target = "sandbox"
+          with open(sys.argv[2], encoding="utf-8") as f:
+              data = json.load(f)
+
+          names, seen = [], set()
+
+          def walk(value):
+              if isinstance(value, dict):
+                  yield value
+                  for child in value.values():
+                      yield from walk(child)
+              elif isinstance(value, list):
+                  for child in value:
+                      yield from walk(child)
+
+          for obj in walk(data):
+              for key in ("name", "environmentName"):
+                  value = obj.get(key)
+                  if value:
+                      name = str(value).strip()
+                      if name and name.lower() not in seen:
+                          seen.add(name.lower())
+                          names.append(name)
+
+          matches = [name for name in names if name.lower() == target]
+          if not matches:
+              print(f"::error::Anypoint environment '{target}' is not visible to this Connected App.")
+              print("Visible environments:")
+              for name in names:
+                  print("  - " + name)
+              raise SystemExit(2)
+
+          with open(sys.argv[1], "a", encoding="utf-8") as f:
+              f.write("ANYPOINT_ENV=" + matches[0] + "\n")
+
+          print("Using exact Anypoint environment:", matches[0])
+          PY
+
+      - name: Start or stop configured applications
+        shell: bash
+        env:
+          MULE_ACTION: ${{ steps.schedule.outputs.action }}
+          MULE_GROUP: all
+          MULE_REGION: all
+        run: |
+          set -euo pipefail
+          echo "Executing configured action: ${MULE_ACTION}"
+          echo "Using the API lists from the checked-out repository configuration."
+          python3 scripts/mule_control.py
+
+      - name: Publish execution summary
+        if: always()
+        shell: bash
+        env:
+          MULE_ACTION: ${{ steps.schedule.outputs.action }}
+          CONFIGURED_TIME: ${{ steps.schedule.outputs.configured_time }}
+        run: |
+          {
+            echo "## MuleSoft API Scheduler"
+            echo ""
+            echo "| Setting | Value |"
+            echo "|---|---|"
+            echo "| Environment | **sandbox** |"
+            echo "| Anypoint environment | **${ANYPOINT_ENV:-unknown}** |"
+            echo "| API group | **ALL** |"
+            echo "| Region | **ALL** |"
+            echo "| Action | **${MULE_ACTION^^}** |"
+            echo "| Configured time | **${CONFIGURED_TIME} IST** |"
+            echo "| Trigger | **Configuration/API-list push** |"
+            echo "| Scheduling model | **Starts immediately, waits for config time, then executes — no cron** |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  cleanup-failed-runs:
+    name: "Remove old failed workflow runs"
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete completed failed runs for this scheduler workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CURRENT_RUN: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          page=1
+          deleted=0
+          while :; do
+            response="$(curl -fsSL \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              "https://api.github.com/repos/${REPO}/actions/runs?per_page=100&page=${page}")
+
+            count="$(jq '.workflow_runs | length' <<<"$response")"
+            [[ "$count" -gt 0 ]] || break
+
+            while IFS= read -r run_id; do
+              [[ -n "$run_id" ]] || continue
+              [[ "$run_id" == "$CURRENT_RUN" ]] && continue
+              if curl -fsSL \
+                -H "Accept: application/vnd.github+json" \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "X-GitHub-Api-Version: 2026-03-10" \
+                "https://api.github.com/repos/${REPO}/actions/runs/${run_id}" \
+                | jq -e '.status == "completed" and .conclusion == "failure" and .path == ".github/workflows/mule-api-scheduler.yml"' >/dev/null; then
+                curl -fsS -X DELETE \
+                  -H "Accept: application/vnd.github+json" \
+                  -H "Authorization: Bearer ${GH_TOKEN}" \
+                  -H "X-GitHub-Api-Version: 2026-03-10" \
+                  "https://api.github.com/repos/${REPO}/actions/runs/${run_id}"
+                deleted=$((deleted + 1))
+              fi
+            done < <(jq -r '.workflow_runs[].id' <<<"$response")
+
+            [[ "$count" -lt 100 ]] && break
+            page=$((page + 1))
+          done
+          echo "Removed ${deleted} old failed scheduler workflow run(s)."
