@@ -1,4 +1,5 @@
 # Master API inventory. All APIs belong to the same Anypoint Business Group.
+# Scheduler controller entry-point fix validated 2026-10-07.
 # Format: api-name | anypoint-environment | region
 # Environment and region can be set explicitly, for example:
 # customer-api | Sandbox | west
