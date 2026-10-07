@@ -1,0 +1,83 @@
+name: Register MuleSoft Scheduler
+
+run-name: "Register MuleSoft schedule from repository config"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "config/schedules.yml"
+      - "config/**/apis.txt"
+      - "scripts/schedule_register.py"
+      - ".github/workflows/mule-api-scheduler.yml"
+      - ".github/workflows/register-mule-schedule.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mule-schedule-registration
+  cancel-in-progress: true
+
+jobs:
+  register:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Register configured IST times
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/schedule_register.py             .github/workflows/mule-api-scheduler.yml             config/schedules.yml
+
+      - name: Validate generated workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          text = Path(".github/workflows/mule-api-scheduler.yml").read_text()
+          if "*/5 * * * *" in text:
+              raise SystemExit("Polling schedule detected; refusing registration.")
+          if "config/schedules.yml" not in text:
+              raise SystemExit("Generated workflow lost its config reference.")
+          print("Generated scheduler workflow validated.")
+          PY
+
+      - name: Commit refreshed schedule
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git diff --quiet -- .github/workflows/mule-api-scheduler.yml; then
+            echo "No schedule registration change is required."
+            exit 0
+          fi
+
+          git add .github/workflows/mule-api-scheduler.yml
+          git commit -m "chore: register scheduler from config"
+          git push
+
+      - name: Publish registration summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## MuleSoft Scheduler Registration"
+            echo ""
+            echo "- Source: `config/schedules.yml`"
+            echo "- Timezone: **Asia/Kolkata**"
+            echo "- Business schedule format: **24-hour HH:MM**"
+            echo "- Automatic polling: **disabled**"
+            echo "- API lists: **read from the latest repository commit when the scheduled run executes**"
+          } >> "$GITHUB_STEP_SUMMARY"
