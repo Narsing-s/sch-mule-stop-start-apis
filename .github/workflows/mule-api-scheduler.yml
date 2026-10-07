@@ -129,6 +129,7 @@ jobs:
           set -euo pipefail
           bg="${{ steps.schedule.outputs.business_group || inputs.business_group || 'Learning' }}"
           echo "ANYPOINT_BG=$bg" >> "$GITHUB_ENV"
+          echo "ANYPOINT_ORG=$bg" >> "$GITHUB_ENV"
           echo "::notice::Selected Anypoint Business Group: $bg"
 
       - name: Automatically select Sandbox Anypoint environment
