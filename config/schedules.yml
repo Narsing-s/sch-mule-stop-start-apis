@@ -7,11 +7,11 @@ timezone: Asia/Kolkata
 
 stop:
   enabled: true
-  time: "13:10"
+  time: "13:15"
 
 start:
   enabled: true
-  time: "13:20"
+  time: "13:30"
 
 # Scheduler retry after automatic Sandbox environment selection fix.
 
