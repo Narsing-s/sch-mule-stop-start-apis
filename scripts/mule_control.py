@@ -195,6 +195,9 @@ def resolve_targets(requested):
             unique = {e.lower(): e for _,e,_ in matches}
             if len(unique) != 1:
                 if not matches:
+                    skipped = getattr(resolve_targets, "_skipped", [])
+                    skipped.append({"api": name, "environment": "auto", "region": region, "reason": "API not found in any accessible Anypoint environment; skipped"})
+                    resolve_targets._skipped = skipped
                     print(f"[SKIP] API {name} could not be found in any accessible Anypoint environment.", flush=True)
                     continue
                 raise RuntimeError("API %s was found in multiple Anypoint environments: %s; configure its environment explicitly." % (name, ", ".join(unique.values())))
@@ -204,7 +207,8 @@ def resolve_targets(requested):
         if region == "auto": region = "all"
         if region != "all" and region not in REGIONS: raise RuntimeError(f"Invalid resolved region {region} for {name}.")
         by_environment.setdefault(environment.lower(), []).append((name, environment, region))
-    resolved, missing, seen_ids = [], [], set()
+    resolved, missing, skipped = [], [], []
+    seen_ids = set()
     for entries in by_environment.values():
         environment = entries[0][1]
         available = list_applications(environment)
@@ -214,6 +218,7 @@ def resolve_targets(requested):
             app = by_name.get(name.lower()) or by_id.get(name)
             if not app:
                 missing.append(f"{env}/{region}:{name}")
+                skipped.append({"api": name, "environment": env, "region": region, "reason": "API not present in runtime; skipped"})
                 print(f"[SKIP] {env}/{region} -> API {name} is not present in the Anypoint runtime; continuing with remaining APIs.", flush=True)
                 continue
             key = (env.lower(), app.app_id)
@@ -221,7 +226,7 @@ def resolve_targets(requested):
             seen_ids.add(key); resolved.append(Application(app.name, env, region, app.app_id))
     if missing:
         print(f"[WARN] Skipped {len(missing)} inventory API(s) that are not deployed in their configured Anypoint environment: {', '.join(missing)}", flush=True)
-    return resolved
+    return resolved, skipped
 
 def _compact(text: str, limit: int = 1200) -> str:
     value = " ".join((text or "").split())
@@ -454,12 +459,8 @@ def main() -> int:
     if not bg: write_analytics(action,bg,[],[],started,"ANYPOINT_BG is required."); return 2
     try:
         requested = parse_inventory(region)
-        applications=resolve_targets(requested)
-        for name, env, target_region in requested:
-            if env.lower() == "auto":
-                continue
-            if not any(a.environment.lower() == env.lower() and a.name.lower() == name.lower() and (target_region in ("auto", "all") or a.region == target_region) for a in applications):
-                skipped.append({"api": name, "environment": env, "region": target_region, "reason": "API not present in runtime; skipped"})
+        applications, resolved_skipped = resolve_targets(requested)
+        skipped.extend(resolved_skipped)
         if not applications:
             raise RuntimeError("No configured APIs are currently deployed in their accessible Anypoint environments.")
         print(f"Business Group={bg}; controlling {len(applications)} APIs; skipping {len(skipped)} missing APIs.",flush=True)
