@@ -30,7 +30,6 @@ jobs:
       ANYPOINT_CLIENT_ID: ${{ secrets.ANYPOINT_CLIENT_ID }}
       ANYPOINT_CLIENT_SECRET: ${{ secrets.ANYPOINT_CLIENT_SECRET }}
       ANYPOINT_ORG: ${{ secrets.ANYPOINT_ORG_ID }}
-      ANYPOINT_ENV: ${{ vars.ANYPOINT_ENVIRONMENT }}
       ANYPOINT_HOST: ${{ vars.ANYPOINT_HOST || 'anypoint.mulesoft.com' }}
     outputs:
       action: ${{ steps.schedule.outputs.action }}
@@ -184,51 +183,79 @@ jobs:
           [[ -n "$token" ]] || { echo "::error::No access_token returned."; exit 1; }
           echo "::notice::sandbox Connected App authentication successful."
 
-      - name: Resolve exact Anypoint environment
+      - name: Automatically select Sandbox Anypoint environment
+        id: resolve-environment
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import json, os, subprocess
 
-          requested = os.environ.get("ANYPOINT_ENV", "").strip()
-          if not requested:
-              raise SystemExit("ANYPOINT_ENV is empty. Set the GitHub Environment variable ANYPOINT_ENVIRONMENT.")
-
           p = subprocess.run(
               ["anypoint-cli-v4", "account:environment:list", "--output", "json"],
               text=True, capture_output=True, check=False
           )
+          print(p.stdout)
           if p.returncode != 0:
-              print(p.stdout)
               print(p.stderr)
               raise SystemExit(p.returncode)
 
           data = json.loads(p.stdout)
-          names = []
+          environments = []
 
           def walk(v):
               if isinstance(v, dict):
-                  for k, val in v.items():
-                      if k in ("name", "environmentName") and val:
-                          names.append(str(val).strip())
-                      walk(val)
+                  if any(k in v for k in ("name", "environmentName")):
+                      environments.append(v)
+                  for value in v.values():
+                      walk(value)
               elif isinstance(v, list):
-                  for x in v:
-                      walk(x)
+                  for value in v:
+                      walk(value)
 
           walk(data)
-          matches = [n for n in names if n.lower() == requested.lower()]
-          if not matches:
-              print(f"::error::Anypoint environment '{requested}' was not found for this Connected App.")
-              print("Visible environments:")
-              for n in dict.fromkeys(names):
-                  print("  - " + n)
+
+          def name(e):
+              return str(e.get("name") or e.get("environmentName") or "").strip()
+
+          def typ(e):
+              return str(e.get("type") or e.get("environmentType") or "").strip()
+
+          sandbox = [e for e in environments if name(e).lower() == "sandbox" or typ(e).lower() == "sandbox"]
+
+          unique = []
+          seen = set()
+          for e in sandbox:
+              key = (name(e).lower(), str(e.get("id") or e.get("environmentId") or ""))
+              if key not in seen:
+                  seen.add(key)
+                  unique.append(e)
+
+          if not unique:
+              print("::error::No accessible Anypoint Sandbox environment was found for this Connected App.")
+              print("Accessible environments returned by Anypoint CLI:")
+              for e in environments:
+                  print(f"  - name={name(e)!r}, type={typ(e)!r}, id={e.get('id') or e.get('environmentId')!r}")
               raise SystemExit(2)
 
+          exact = [e for e in unique if name(e).lower() == "sandbox"]
+          if len(exact) == 1:
+              selected = exact[0]
+          elif len(unique) == 1:
+              selected = unique[0]
+          else:
+              print("::error::Multiple accessible Sandbox environments were found; refusing to guess.")
+              for e in unique:
+                  print(f"  - name={name(e)!r}, type={typ(e)!r}, id={e.get('id') or e.get('environmentId')!r}")
+              raise SystemExit(3)
+
+          selected_name = name(selected)
+          selected_id = str(selected.get("id") or selected.get("environmentId") or "").strip()
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as out:
-              out.write("ANYPOINT_ENV=" + matches[0] + "\n")
-          print("Using exact Anypoint environment:", matches[0])
+              out.write("ANYPOINT_ENV=" + selected_name + "\n")
+              out.write("ANYPOINT_ENV_ID=" + selected_id + "\n")
+
+          print(f"::notice::Automatically selected Anypoint Sandbox environment: {selected_name} (id={selected_id or 'n/a'})")
           PY
 
       - name: Start or stop configured applications
