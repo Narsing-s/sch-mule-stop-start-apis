@@ -12,7 +12,6 @@ on:
       - "config/papi/**"
       - "config/sapi/**"
       - "config/other/**"
-  workflow_dispatch:
 
 permissions:
   contents: read
