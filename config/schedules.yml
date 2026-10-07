@@ -11,7 +11,7 @@ stop:
 
 start:
   enabled: true
-  time: "14:00"
+  time: "14:15"
 
 # Scheduler retry after automatic Sandbox environment selection fix.
 
