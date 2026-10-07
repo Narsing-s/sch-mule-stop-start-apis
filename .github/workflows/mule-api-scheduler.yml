@@ -6,9 +6,9 @@ on:
   schedule:
     # GENERATED FROM config/schedules.yml. Business times remain normal 24-hour IST.
     # This is not polling. The registration workflow refreshes these entries when config changes.
-    - cron: "28 8 * * *"
+    - cron: "20 9 * * *"
       timezone: "Asia/Kolkata"
-    - cron: "39 8 * * *"
+    - cron: "50 9 * * *"
       timezone: "Asia/Kolkata"
   workflow_dispatch:
     inputs:
