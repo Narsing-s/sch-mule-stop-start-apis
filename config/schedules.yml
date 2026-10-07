@@ -8,7 +8,7 @@ business_group: "Learning"
 
 stop:
   enabled: true
-  time: "22:54"
+  time: "22:58"
 
 start:
   enabled: true
