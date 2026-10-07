@@ -35,6 +35,7 @@ def main():
     path = Path(sys.argv[1] if len(sys.argv) > 1 else "config/schedules.yml")
     data = read_config(path)
     now = datetime.now(ZoneInfo("Asia/Kolkata"))
+    event_schedule = sys.argv[2].strip() if len(sys.argv) > 2 else ""
     minute = now.hour * 60 + now.minute
 
     configured = {}
@@ -42,6 +43,19 @@ def main():
         cfg = data.get(action, {})
         if str(cfg.get("enabled", "true")).lower() in {"true", "yes", "1"}:
             configured[action] = parse_time(cfg, action)
+
+    # Prefer the GitHub schedule expression that triggered this run.
+    # This keeps a delayed STOP run as STOP even if the clock has reached START.
+    if event_schedule:
+        expected = {
+            "20 2 * * *": "stop",
+            "29 2 * * *": "start",
+        }
+        action = expected.get(event_schedule)
+        if action in configured:
+            Path("/tmp/mule-scheduler-action").write_text(action + "\n", encoding="utf-8")
+            print(f"IST now={now:%Y-%m-%d %H:%M:%S %Z}; action={action}; triggered_by={event_schedule}")
+            return 0
 
     if not configured:
         Path("/tmp/mule-scheduler-action").write_text("none\n", encoding="utf-8")
