@@ -1,71 +1,22 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MuleSoft API Scheduler Control Center</title>
-<meta name="description" content="MuleSoft EAPI PAPI SAPI CloudHub start stop scheduler">
-<link rel="stylesheet" href="./styles.css">
-</head>
-<body>
-<main class="shell">
-<header>
-  <div><p class="eyebrow">GITHUB ACTIONS • CLOUDHUB 2.0 • SANDBOX • ASIA/KOLKATA</p><h1>MuleSoft API Scheduler Control Center</h1><p class="sub">One control plane for the repository scheduler: configure schedules and API inventory, then GitHub Actions waits, controls CloudHub, verifies actual state, generates analytics, and sends notifications.</p></div>
-  <a href="https://github.com/Narsing-s/sch-mule-stop-start-apis" target="_blank" rel="noreferrer">Repository ↗</a>
-</header>
-
-<section class="notice"><b>Scheduler model</b><span>Saving a schedule immediately queues GitHub Actions. The runner waits for the configured IST action. Manual START/STOP controls dispatch the same workflow immediately. No cron is used.</span></section>
-
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MuleSoft API Scheduler Control Center</title><meta name="description" content="MuleSoft CloudHub start stop scheduler">
+<link rel="stylesheet" href="./styles.css"></head>
+<body><main class="shell">
+<header><div><p class="eyebrow">GITHUB ACTIONS • CLOUDHUB 2.0 • PER-API ENVIRONMENTS • ASIA/KOLKATA</p><h1>MuleSoft API Scheduler Control Center</h1><p class="sub">One master inventory for all APIs. Each API carries its own Anypoint environment and CloudHub region; the Business Group is shared.</p></div><a href="https://github.com/Narsing-s/sch-mule-stop-start-apis" target="_blank" rel="noreferrer">Repository ↗</a></header>
+<section class="notice"><b>Scheduler model</b><span>Saving configuration immediately queues GitHub Actions. The runner waits for the configured IST action, then controls each API in its configured Anypoint environment. No cron is used.</span></section>
 <section class="grid">
-<article class="card">
-<h2>GitHub access</h2>
-<label>Repository</label><input id="repo" value="Narsing-s/sch-mule-stop-start-apis">
-<label>Fine-grained GitHub token</label><input id="token" type="password" placeholder="github_pat_…">
-<p class="hint">Session only. Use <b>Contents: Read and write</b> and <b>Actions: Read and write</b>. The token is never committed.</p>
-<button id="connect">Connect & load</button><div id="msg" class="status"></div>
-</article>
-
-<article class="card">
-<h2>Schedule</h2>
-<div class="two"><div><label>Execution Environment</label><input value="sandbox (GitHub Environment)" disabled></div><div><label>Anypoint Environment</label><input value="Sandbox (auto-selected by GitHub Actions)" disabled></div></div>
-<div class="two">
-<div><label>Business Group</label><input id="scheduleBg" placeholder="Enter Business Group name or ID"></div>
-<div><label>Stop</label><div class="inline"><input id="stopTime" type="time"><select id="stopEnabled"><option value="true">Enabled</option><option value="false">Disabled</option></select></div></div>
-<div><label>Start</label><div class="inline"><input id="startTime" type="time"><select id="startEnabled"><option value="true">Enabled</option><option value="false">Disabled</option></select></div></div>
-</div>
-<button id="save">Save schedule & queue workflow</button>
-<p class="hint">Asia/Kolkata. The next configured action is selected when the workflow starts.</p>
-</article>
-</section>
-
-<section class="card">
-<div class="sectionHead"><div><h2>API Configuration</h2><p class="muted">Configure API names for EAPI, PAPI, SAPI and Other by CloudHub region. You can paste comma-separated names and optionally upload a TXT/CSV file.</p></div></div>
-<div class="apiConfigGrid">
-  <div><label>API group</label><select id="apiConfigGroup"><option value="eapi">EAPI</option><option value="papi">PAPI</option><option value="sapi">SAPI</option><option value="other">Other</option></select></div>
-  <div><label>Region</label><select id="apiConfigRegion"><option value="all">All regions</option><option value="west">West</option><option value="westb">WestB</option><option value="east">East</option></select></div>
-</div>
-<label>API names</label><textarea id="apiNames" rows="6" placeholder="api-one, api-two, api-three"></textarea>
-<div class="configActions">
-  <button type="button" id="saveApis">Save API configuration</button>
-  <input id="apiFile" type="file" accept=".txt,.csv,text/plain,text/csv">
-  <button type="button" id="uploadApis" class="secondary">📤 Upload TXT/CSV</button>
-</div>
-<div id="apiConfigMsg" class="status"></div>
-<div class="uploadMatrix" id="uploadMatrix"></div>
-</section><section class="card"><div class="sectionHead"><div><h2>START / STOP controls</h2><p class="muted">Select a group and region, then control all configured APIs in that scope immediately.</p></div></div><div class="two"><div><label>Business Group</label><input id="controlBg" placeholder="Enter Business Group name or ID"></div><div><label>API group</label><select id="controlGroup"><option value="eapi">EAPI</option><option value="papi">PAPI</option><option value="sapi">SAPI</option><option value="other">Other</option><option value="all">All groups</option></select></div><div><label>Region</label><select id="controlRegion"><option value="all">All regions</option><option value="west">West</option><option value="westb">WestB</option><option value="east">East</option></select></div></div><div class="two actionPair"><button data-action="start" id="startScope" data-group="eapi" data-region="all">START selected APIs</button><button class="danger" data-action="stop" id="stopScope" data-group="eapi" data-region="all">STOP selected APIs</button></div></section>
-
-<section class="card">
-<div class="sectionHead"><div><h2>API inventory</h2><p class="muted">Configured applications across EAPI, PAPI, SAPI and Other, including regional configuration.</p></div><button id="refresh" class="secondary">Refresh</button></div>
-<div class="stats"><div><b id="total">—</b><span>Total</span></div><div><b id="eapiN">—</b><span>EAPI</span></div><div><b id="papiN">—</b><span>PAPI</span></div><div><b id="sapiN">—</b><span>SAPI</span></div><div><b id="otherN">—</b><span>Other</span></div></div>
-<div class="tabs" id="tabs"><button class="active" data-tab="ALL">ALL</button><button data-tab="EAPI">EAPI</button><button data-tab="PAPI">PAPI</button><button data-tab="SAPI">SAPI</button><button data-tab="OTHER">OTHER</button></div>
-<div class="inventoryFilters"><select id="inventoryRegion"><option value="all">All regions</option><option value="west">West</option><option value="westb">WestB</option><option value="east">East</option></select><input id="search" placeholder="Search API/application"></div>
-<div id="inventory" class="inventory"></div>
-</section>
-
-<section class="card">
-<div class="sectionHead"><div><h2>Latest scheduler run</h2><p class="muted">Live GitHub Actions status.</p></div><button id="refreshRun" class="secondary">Refresh run</button></div>
-<div id="run" class="run empty">Connect to load workflow status.</div>
-</section>
-<footer>Static UI. GitHub is the control plane; MuleSoft secrets remain in the GitHub <b>sandbox</b> environment.</footer>
-</main>
-<script src="./app.js"></script>
-</body></html>
+<article class="card"><h2>GitHub access</h2><label>Repository</label><input id="repo" value="Narsing-s/sch-mule-stop-start-apis"><label>Fine-grained GitHub token</label><input id="token" type="password" placeholder="github_pat_…"><p class="hint">Session only. Grant Contents: Read and write and Actions: Read and write.</p><button id="connect">Connect & load</button><div id="msg" class="status"></div></article>
+<article class="card"><h2>Schedule</h2><div><label>GitHub Environment</label><input value="sandbox (credentials only)" disabled></div><div><label>Business Group</label><input id="scheduleBg" placeholder="Shared Anypoint Business Group name or ID"></div>
+<div class="two"><div><label>Stop</label><div class="inline"><input id="stopTime" type="time"><select id="stopEnabled"><option value="true">Enabled</option><option value="false">Disabled</option></select></div></div><div><label>Start</label><div class="inline"><input id="startTime" type="time"><select id="startEnabled"><option value="true">Enabled</option><option value="false">Disabled</option></select></div></div></div>
+<button id="save">Save schedule & queue workflow</button><p class="hint">API environments are configured per row below, not in the schedule.</p></article></section>
+<section class="card"><div class="sectionHead"><div><h2>Master API inventory</h2><p class="muted">All APIs live only in config/all/apis.txt. Format: API name | Anypoint environment | region.</p></div><button id="refresh" class="secondary">Refresh</button></div>
+<label>API inventory</label><textarea id="apiNames" rows="12" placeholder="customer-api | Sandbox | west&#10;orders-api | Development | east&#10;payments-api | Production | westb"></textarea>
+<div class="configActions"><button id="saveApis">Save API inventory</button><input id="apiFile" type="file" accept=".txt,.csv,text/plain,text/csv"><button id="uploadApis" class="secondary">📤 Upload TXT/CSV</button></div>
+<p class="hint">Use one API per line. Environment must be the exact Anypoint environment name. Region: west, westb, east. Use auto only temporarily when you want the workflow to discover a unique environment.</p><div id="apiConfigMsg" class="status"></div></section>
+<section class="card"><div class="sectionHead"><div><h2>START / STOP controls</h2><p class="muted">Controls use the master inventory. Region is an optional filter.</p></div></div><div class="two"><div><label>Business Group</label><input id="controlBg" placeholder="Shared Business Group"></div><div><label>Region filter</label><select id="controlRegion"><option value="all">All regions</option><option value="west">West</option><option value="westb">WestB</option><option value="east">East</option></select></div></div><div class="two actionPair"><button id="startScope">START APIs</button><button class="danger" id="stopScope">STOP APIs</button></div></section>
+<section class="card"><div class="sectionHead"><div><h2>Inventory view</h2><p class="muted">Environment and region are read directly from the master inventory.</p></div></div><div class="inventoryFilters"><select id="inventoryRegion"><option value="all">All regions</option><option value="west">West</option><option value="westb">WestB</option><option value="east">East</option></select><input id="search" placeholder="Search API/application"></div><div id="inventory" class="inventory"></div></section>
+<section class="card"><div class="sectionHead"><div><h2>Latest scheduler run</h2><p class="muted">Live GitHub Actions status.</p></div><button id="refreshRun" class="secondary">Refresh run</button></div><div id="run" class="run empty">Connect to load workflow status.</div></section>
+<footer>GitHub Actions is the execution control plane. GitHub Environment sandbox stores credentials; Anypoint environment is selected per API from config/all/apis.txt.</footer>
+</main><script src="./app.js"></script></body></html>
