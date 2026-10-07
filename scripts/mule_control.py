@@ -24,45 +24,25 @@ class Application:
     app_id: str
 
 def cli(environment: str, *args: str) -> subprocess.CompletedProcess[str]:
-    """Run Anypoint CLI with explicit Connected App credentials."""
-    command = ["anypoint-cli-v4", *args]
+    """Run Anypoint CLI with global authentication/environment flags first."""
+    flags = []
     client_id = os.getenv("ANYPOINT_CLIENT_ID", "").strip()
     client_secret = os.getenv("ANYPOINT_CLIENT_SECRET", "").strip()
     organization = os.getenv("ANYPOINT_ORG", "").strip()
     if client_id:
-        command.extend(["--client_id", client_id])
+        flags.extend(["--client_id", client_id])
     if client_secret:
-        command.extend(["--client_secret", client_secret])
+        flags.extend(["--client_secret", client_secret])
     if organization:
-        command.extend(["--organization", organization])
+        flags.extend(["--organization", organization])
     if environment:
-        command.extend(["--environment", environment])
-    return subprocess.run(command, text=True, capture_output=True, check=False)
-
-def parse_json(output: str) -> object:
-    try:
-        return json.loads(output)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Anypoint CLI returned invalid JSON: {exc}") from exc
-
-def walk(value: object):
-    if isinstance(value, dict):
-        yield value
-        for child in value.values():
-            yield from walk(child)
-    elif isinstance(value, list):
-        for child in value:
-            yield from walk(child)
-
-def values_for_key(value: object, wanted_key: str) -> list[str]:
-    found = []
-    for obj in walk(value):
-        if isinstance(obj, dict):
-            for key, child in obj.items():
-                if key.lower() == wanted_key.lower() and child is not None:
-                    found.append(str(child).strip().upper())
-    return found
-
+        flags.extend(["--environment", environment])
+    return subprocess.run(
+        ["anypoint-cli-v4", *flags, *args],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
 def parse_inventory(selected_region: str) -> list[tuple[str, str, str]]:
     if not INVENTORY.exists():
         raise RuntimeError(f"Missing API inventory: {INVENTORY}")
@@ -201,13 +181,33 @@ def _compact(text: str, limit: int = 1200) -> str:
 
 
 def _application_state(app: Application) -> str:
-    result = cli(app.environment, "runtime-mgr:application:describe", app.app_id, "--output", "json")
-    if result.returncode != 0:
-        # Fall back to the list response when describe is unavailable.
-        result = cli(app.environment, "runtime-mgr:application:list", "--output", "json")
-    if result.returncode != 0:
-        raise RuntimeError("state lookup failed: " + _compact(result.stderr or result.stdout))
-    payload = parse_json(result.stdout)
+    """Return the actual CloudHub 2.0 runtime/replica lifecycle state.
+
+    CloudHub 2.0 exposes both configuration/deployment status (for example
+    APPLIED) and the actual application/replica lifecycle status. APPLIED is
+    not a running/stopped state, so it must never be used to decide whether
+    START/STOP completed.
+    """
+    commands = [
+        ("runtime-mgr:application:describe-json", [app.app_id]),
+        ("runtime-mgr:application:describe", [app.app_id, "--output", "json"]),
+        ("runtime-mgr:application:list", ["--output", "json"]),
+    ]
+    payload = None
+    last_error = ""
+    for command, args in commands:
+        result = cli(app.environment, command, *args)
+        if result.returncode == 0 and result.stdout.strip():
+            try:
+                payload = parse_json(result.stdout)
+                break
+            except RuntimeError as exc:
+                last_error = str(exc)
+        else:
+            last_error = _compact(result.stderr or result.stdout)
+
+    if payload is None:
+        raise RuntimeError("state lookup failed: " + (last_error or "empty response"))
 
     wanted = app.app_id.strip().lower()
     wanted_name = app.name.strip().lower()
@@ -220,42 +220,79 @@ def _application_state(app: Application) -> str:
         if oid == wanted or oname == wanted_name:
             candidates.append(obj)
     if not candidates:
-        raise RuntimeError("application was not present in Anypoint response")
+        # describe-json can return the application object directly without an
+        # id/name wrapper. If so, use it rather than incorrectly reporting
+        # that the application is missing.
+        if isinstance(payload, dict):
+            candidates = [payload]
+        else:
+            raise RuntimeError("application was not present in Anypoint response")
 
-    obj = candidates[0]
+    values = []
+    actual_keys = {
+        "status", "state", "applicationstatus", "deploymentstatus",
+        "replicastatus", "workerstates", "workerstatus",
+    }
+    ignored_values = {
+        "", "UNKNOWN", "APPLIED", "DEPLOYING", "APPLYING", "PENDING",
+        "UPDATING", "UPDATED", "DEPLOYMENT", "DEPLOYED",
+    }
 
-    # CloudHub 2.0 can report deployment=APPLIED while desiredState is
-    # STARTED or STOPPED. Prefer desired state so STOP/START is verified
-    # against the application lifecycle state.
-    for key in ("desiredState", "desired_status", "desired", "applicationState"):
-        value = obj.get(key)
-        if value is not None and str(value).strip():
-            return str(value).strip().upper()
+    for obj in candidates:
+        for key, value in obj.items():
+            normalized_key = str(key).replace("_", "").replace("-", "").lower()
+            if normalized_key not in actual_keys:
+                continue
+            if isinstance(value, (str, int, float, bool)):
+                values.append(str(value).strip().upper())
+            elif isinstance(value, list):
+                for item in value:
+                    if isinstance(item, dict):
+                        for child_key in ("status", "state", "replicaStatus", "workerStatus"):
+                            child = item.get(child_key)
+                            if child is not None:
+                                values.append(str(child).strip().upper())
+            elif isinstance(value, dict):
+                for child_key in ("status", "state"):
+                    child = value.get(child_key)
+                    if child is not None:
+                        values.append(str(child).strip().upper())
 
-    for key in ("deployment", "application", "runtime"):
-        child = obj.get(key)
-        if isinstance(child, dict):
-            for state_key in ("desiredState", "desired_status", "desired", "state", "status"):
-                value = child.get(state_key)
-                if value is not None and str(value).strip():
-                    return str(value).strip().upper()
+    # Also collect lifecycle status fields nested below deployment/replica
+    # objects, while intentionally ignoring desiredState/configuration status.
+    for obj in walk(candidates[0]):
+        if not isinstance(obj, dict):
+            continue
+        for key in ("status", "state", "applicationStatus", "replicaStatus", "workerStatus"):
+            value = obj.get(key)
+            if value is not None and not isinstance(value, (dict, list)):
+                values.append(str(value).strip().upper())
 
-    for key in ("state", "status", "applicationStatus", "deploymentStatus"):
-        value = obj.get(key)
-        if value is not None and str(value).strip():
-            return str(value).strip().upper()
+    values = [v.replace("-", "_").replace(" ", "_") for v in values if v not in ignored_values]
 
+    if any(v in {"RUNNING", "STARTED", "STARTING"} for v in values):
+        return "STARTING" if "STARTING" in values and "RUNNING" not in values and "STARTED" not in values else "STARTED"
+    if any(v in {"STOPPING"} for v in values):
+        return "STOPPING"
+    if any(v in {"STOPPED", "NOT_RUNNING", "NOTRUNNING", "UNDEPLOYED", "DELETED"} for v in values):
+        return "STOPPED"
+    if any(v in {"FAILED", "TERMINATED", "RECOVERING"} for v in values):
+        return next(v for v in values if v in {"FAILED", "TERMINATED", "RECOVERING"})
     return "UNKNOWN"
-
-
 def control(app: Application, action: str):
     started = time.monotonic()
     command_name = "runtime-mgr:application:%s" % action
     print("[%s] %s/%s -> %s (%s)" % (action.upper(), app.environment, app.name, command_name, app.app_id), flush=True)
 
+    expected = "STARTED" if action == "start" else "STOPPED"
     before = "UNKNOWN"
     try:
         before = _application_state(app)
+        print("[%s] %s initial state=%s" % (app.name, before), flush=True)
+        if action == "start" and before == "STARTED":
+            return app, True, "STARTED (already running)", time.monotonic() - started
+        if action == "stop" and before == "STOPPED":
+            return app, True, "STOPPED (already stopped)", time.monotonic() - started
     except Exception as exc:
         print("[WARN] %s initial state lookup: %s" % (app.name, exc), flush=True)
 
@@ -264,25 +301,21 @@ def control(app: Application, action: str):
         detail = _compact(result.stderr or result.stdout)
         return app, False, "CLI failed: %s" % detail, time.monotonic() - started
 
-    expected = "STARTED" if action == "start" else "STOPPED"
-    deadline = time.monotonic() + TIMEOUT_SECONDS if TIMEOUT_SECONDS > 0 else time.monotonic() + 300
+    deadline = time.monotonic() + (TIMEOUT_SECONDS if TIMEOUT_SECONDS > 0 else 300)
     last = before
     while time.monotonic() < deadline:
         try:
             last = _application_state(app)
             print("[%s] %s state=%s (before=%s)" % (app.name, last, before), flush=True)
-            normalized = last.replace("-", "_").replace(" ", "_").upper()
-            if expected == "STARTED" and normalized in {"STARTED", "RUNNING", "DEPLOYED"}:
-                return app, True, last, time.monotonic() - started
-            if expected == "STOPPED" and normalized in {"STOPPED", "UNDEPLOYED"}:
-                # STOPPING is accepted only as a transitional success after the stop command.
-                return app, True, last, time.monotonic() - started
+            if action == "start" and last == "STARTED":
+                return app, True, "STARTED", time.monotonic() - started
+            if action == "stop" and last == "STOPPED":
+                return app, True, "STOPPED", time.monotonic() - started
         except Exception as exc:
             last = "STATE_LOOKUP_ERROR: %s" % _compact(str(exc))
         time.sleep(POLL_SECONDS)
 
     return app, False, "Expected %s; final state=%s" % (expected, last), time.monotonic() - started
-
 def write_analytics(action, business_group, applications, results, started, error=""):
     path = Path(os.getenv("MULE_ANALYTICS_FILE", "mule-execution-analytics.json"))
     successful = sum(1 for _, ok, _, _ in results if ok)
