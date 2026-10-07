@@ -440,9 +440,7 @@ def main() -> int:
     try:
         applications=resolve_targets(parse_inventory(region))
         print(f"Business Group={bg}; controlling {len(applications)} APIs.",flush=True)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(12,max(1,len(applications)))) as executor:
-            for future in concurrent.futures.as_completed([executor.submit(control,a,action) for a in applications]):
-                results.append(future.result())
+        results = execute(applications, action)
         data=write_analytics(action,bg,applications,results,started)
         return 1 if data["failed"] else 0
     except Exception as exc:
