@@ -47,6 +47,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
   run-scheduled-action:
@@ -55,7 +56,7 @@ jobs:
     timeout-minutes: 360
     environment: sandbox
     concurrency:
-      group: mule-api-scheduler-wait-sandbox
+      group: mule-api-scheduler-${{ inputs.action || 'schedule' }}-${{ inputs.group || 'all' }}-${{ inputs.region || 'all' }}
       cancel-in-progress: true
     env:
       ANYPOINT_CLIENT_ID: ${{ secrets.ANYPOINT_CLIENT_ID }}
@@ -152,6 +153,7 @@ jobs:
           PY
 
       - name: Start or stop configured applications
+        if: ${{ steps.schedule.outputs.handoff != 'true' }}
         env:
           MULE_ACTION: ${{ steps.schedule.outputs.action }}
           MULE_GROUP: ${{ inputs.group || 'all' }}
@@ -160,6 +162,17 @@ jobs:
           set -euo pipefail
           echo "Executing configured action: ${MULE_ACTION}"
           python3 scripts/mule_control.py
+
+      - name: Queue next daily scheduler cycle
+        if: ${{ steps.schedule.outputs.handoff != 'true' && (github.event_name == 'push' || inputs.action == 'schedule') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Completed scheduled action; queueing the next daily cycle with workflow_dispatch."
+          gh workflow run mule-api-scheduler.yml --repo "${{ github.repository }}" --ref main             -f action=schedule -f group=all -f region=all
+          echo "::notice::Next daily scheduler cycle queued."
 
       - name: Publish execution summary
         if: always()
