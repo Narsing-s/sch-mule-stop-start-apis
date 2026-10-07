@@ -260,7 +260,7 @@ def control(app: Application, action: str):
             normalized = last.replace("-", "_").replace(" ", "_").upper()
             if expected == "STARTED" and normalized in {"STARTED", "RUNNING", "DEPLOYED"}:
                 return app, True, last, time.monotonic() - started
-            if expected == "STOPPED" and normalized in {"STOPPED", "STOPPING", "UNDEPLOYED"}:
+            if expected == "STOPPED" and normalized in {"STOPPED", "UNDEPLOYED"}:
                 # STOPPING is accepted only as a transitional success after the stop command.
                 return app, True, last, time.monotonic() - started
         except Exception as exc:
@@ -271,20 +271,61 @@ def control(app: Application, action: str):
 
 def write_analytics(action, business_group, applications, results, started, error=""):
     path = Path(os.getenv("MULE_ANALYTICS_FILE", "mule-execution-analytics.json"))
-    failed = len(applications) - sum(1 for _, ok, _, _ in results)
-    if error: failed = max(failed, 1)
-    rows = [{"api": a.name, "business_group": business_group, "environment": a.environment, "region": a.region, "result": "SUCCESS" if ok else "FAILED", "final_state": msg, "duration_seconds": round(d,1)} for a,ok,msg,d in results]
-    if error and not rows: rows.append({"api":"*", "business_group":business_group, "environment":"*", "region":os.getenv("MULE_REGION","all"), "result":"FAILED", "final_state":error, "duration_seconds":round(time.monotonic()-started,1)})
-    data={"action":action,"business_group":business_group,"inventory":str(INVENTORY),"total":len(applications),"successful":max(0,len(applications)-failed),"failed":failed,"total_duration_seconds":round(time.monotonic()-started,1),"poll_interval_seconds":POLL_SECONDS,"environments":sorted({a.environment for a in applications},key=str.lower),"error":error,"results":rows}
-    path.write_text(json.dumps(data,indent=2),encoding="utf-8")
-    summary=os.getenv("GITHUB_STEP_SUMMARY")
+    successful = sum(1 for _, ok, _, _ in results if ok)
+    failed = max(0, len(applications) - successful)
+    if error and failed == 0:
+        failed = 1
+    rows = []
+    for app, ok, msg, duration in results:
+        rows.append({
+            "api": app.name,
+            "business_group": business_group,
+            "environment": app.environment,
+            "region": app.region,
+            "result": "SUCCESS" if ok else "FAILED",
+            "final_state": msg,
+            "duration_seconds": round(duration, 1),
+        })
+    if error and not rows:
+        rows.append({
+            "api": "*",
+            "business_group": business_group,
+            "environment": "*",
+            "region": os.getenv("MULE_REGION", "all"),
+            "result": "FAILED",
+            "final_state": error,
+            "duration_seconds": round(time.monotonic() - started, 1),
+        })
+    data = {
+        "action": action,
+        "business_group": business_group,
+        "inventory": str(INVENTORY),
+        "total": len(applications),
+        "successful": successful,
+        "failed": failed,
+        "total_duration_seconds": round(time.monotonic() - started, 1),
+        "poll_interval_seconds": POLL_SECONDS,
+        "environments": sorted({a.environment for a in applications}, key=str.lower),
+        "error": error,
+        "results": rows,
+    }
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    print("Analytics written to %s" % path, flush=True)
+    summary = os.getenv("GITHUB_STEP_SUMMARY")
     if summary:
-        with open(summary,"a",encoding="utf-8") as f:
+        with open(summary, "a", encoding="utf-8") as f:
             f.write("\n## Execution Analytics\n")
-            f.write("**%s — %s/%s successful; %s failed.**\\n\\n" % (action.upper(), data["successful"], data["total"], data["failed"]))
-            if error: f.write(f"**Error:** {error}\n\n")
-            f.write("| Environment | Region | API | Result | Final state | Duration |\n|---|---|---|---|---|---:|\n")
-            for row in rows: f.write(f"| {row["environment"]} | {row["region"].upper()} | {row["api"]} | {row["result"]} | {row["final_state"].replace("|","\\|")} | {row["duration_seconds"]}s |\n")
+            f.write("**%s — %s/%s successful; %s failed.**\n\n" %
+                    (action.upper(), data["successful"], data["total"], data["failed"]))
+            if error:
+                f.write("**Error:** %s\n\n" % error)
+            f.write("| Environment | Region | API | Result | Final state | Duration |\n")
+            f.write("|---|---|---|---|---|---:|\n")
+            for row in rows:
+                safe_state = str(row["final_state"]).replace("|", "/")
+                f.write("| %s | %s | %s | %s | %s | %ss |\n" %
+                        (row["environment"], row["region"].upper(), row["api"],
+                         row["result"], safe_state, row["duration_seconds"]))
     return data
 
 def main() -> int:
