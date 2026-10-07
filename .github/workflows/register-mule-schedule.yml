@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: mule-schedule-registration
@@ -29,12 +29,19 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          token: ${{ secrets.WORKFLOW_TOKEN }}
 
       - name: Register configured IST times
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/schedule_register.py             .github/workflows/mule-api-scheduler.yml             config/schedules.yml
+          test -n "${{ secrets.WORKFLOW_TOKEN }}" || {
+            echo "::error::WORKFLOW_TOKEN repository secret is required."
+            exit 1
+          }
+          python3 scripts/schedule_register.py \
+            .github/workflows/mule-api-scheduler.yml \
+            config/schedules.yml
 
       - name: Validate generated workflow
         shell: bash
@@ -42,10 +49,9 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          import re
 
           text = Path(".github/workflows/mule-api-scheduler.yml").read_text()
-          if "*"+"/5 * * * *" in text:
+          if "*" + "/5 * * * *" in text:
               raise SystemExit("Polling schedule detected; refusing registration.")
           if "config/schedules.yml" not in text:
               raise SystemExit("Generated workflow lost its config reference.")
@@ -66,7 +72,7 @@ jobs:
 
           git add .github/workflows/mule-api-scheduler.yml
           git commit -m "chore: register scheduler from config"
-          git push
+          git push origin HEAD:main
 
       - name: Publish registration summary
         if: always()
@@ -80,4 +86,5 @@ jobs:
             echo "- Business schedule format: **24-hour HH:MM**"
             echo "- Automatic polling: **disabled**"
             echo "- API lists: **read from the latest repository commit when the scheduled run executes**"
+            echo "- Workflow registration: **uses WORKFLOW_TOKEN because GitHub's default GITHUB_TOKEN cannot push workflow-file changes**"
           } >> "$GITHUB_STEP_SUMMARY"
