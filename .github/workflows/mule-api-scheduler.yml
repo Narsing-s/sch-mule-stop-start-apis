@@ -108,8 +108,8 @@ jobs:
           elif not unique: raise SystemExit("No accessible Anypoint Sandbox environment was found.")
           else: raise SystemExit("Multiple accessible Sandbox environments found; refusing to guess.")
           with open(os.environ["GITHUB_ENV"],"a") as out:
-              out.write("ANYPOINT_ENV="+name(selected)+"\\n")
-              out.write("ANYPOINT_ENV_ID="+str(selected.get("id") or selected.get("environmentId") or "")+"\\n")
+              out.write("ANYPOINT_ENV="+name(selected)+"\n")
+              out.write("ANYPOINT_ENV_ID="+str(selected.get("id") or selected.get("environmentId") or "")+"\n")
           print(f"::notice::Selected Sandbox Anypoint environment: {name(selected)}")
           PY
 
