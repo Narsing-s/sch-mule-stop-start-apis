@@ -3,16 +3,13 @@ name: MuleSoft API Auto Start Stop
 run-name: "MuleSoft API Scheduler - ${{ github.event_name == 'schedule' && 'automatic' || github.event_name == 'push' && 'workflow-install-check' || inputs.action }}"
 
 on:
-  # Runs once when this workflow is committed/updated, proving GitHub Actions
-  # has discovered the workflow on the default branch. It never changes the
-  # business schedule; the normal IST times remain in config/schedules.yml.
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/mule-api-scheduler.yml"
   schedule:
-    # Generic wake-up only. Business times are defined in config/schedules.yml (IST).
-    - cron: "*/5 * * * *"
+    # GENERATED FROM config/schedules.yml. Business times remain normal 24-hour IST.
+    # This is not polling. The registration workflow refreshes these entries when config changes.
+    - cron: "28 8 * * *"
+      timezone: "Asia/Kolkata"
+    - cron: "39 8 * * *"
+      timezone: "Asia/Kolkata"
   workflow_dispatch:
     inputs:
       action:
@@ -75,37 +72,35 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Resolve lifecycle action from normal IST time
+      - name: Resolve lifecycle action from registered schedule
         id: action
         shell: bash
         env:
           MANUAL_ACTION: ${{ inputs.action }}
+          GITHUB_EVENT_SCHEDULE: ${{ github.event_name == 'schedule' && github.event.schedule || '' }}
         run: |
           set -euo pipefail
+
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             action="$MANUAL_ACTION"
-          elif [[ "${{ github.event_name }}" == "push" ]]; then
-            echo "Workflow discovery check: no MuleSoft lifecycle action will be executed."
-            echo "MULE_ACTION=none" >> "$GITHUB_ENV"
-            echo "action=none" >> "$GITHUB_OUTPUT"
-            exit 0
           else
-            echo "Checking config/schedules.yml against current IST time..."
-            date -u
+            echo "Registered schedule event: $GITHUB_EVENT_SCHEDULE"
+            echo "Current IST time:"
             TZ=Asia/Kolkata date
             cat config/schedules.yml
-            python3 scripts/schedule_check.py config/schedules.yml
+            python3 scripts/schedule_check.py config/schedules.yml "$GITHUB_EVENT_SCHEDULE"
             action="$(cat /tmp/mule-scheduler-action)"
             if [[ "$action" == "none" ]]; then
-              echo "No configured lifecycle action is due at this IST minute. Skipping."
+              echo "::warning::Stale schedule event; config changed after this schedule was registered. Nothing will be executed."
               echo "action=none" >> "$GITHUB_OUTPUT"
               echo "MULE_ACTION=none" >> "$GITHUB_ENV"
               exit 0
             fi
           fi
+
           echo "action=$action" >> "$GITHUB_OUTPUT"
           echo "MULE_ACTION=$action" >> "$GITHUB_ENV"
-
+          echo "::notice::Registered lifecycle action: $action"
       - name: Validate credentials and configuration
         if: env.MULE_ACTION != 'none'
         shell: bash
@@ -205,5 +200,5 @@ jobs:
             echo "| Region | **${MULE_REGION^^}** |"
             echo "| Action | **${MULE_ACTION^^}** |"
             echo "| Schedule source | **config/schedules.yml (24-hour IST)** |"
-            echo "| Automatic trigger | **Every 5 minutes; configured IST time decides action** |"
+            echo "| Automatic trigger | **Registered exact IST schedule; no polling** |"
           } >> "$GITHUB_STEP_SUMMARY"
