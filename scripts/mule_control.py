@@ -24,7 +24,10 @@ class Application:
 
 def cli(*args: str) -> subprocess.CompletedProcess[str]:
     command = ["anypoint-cli-v4", *args]
+    business_group = os.getenv("ANYPOINT_BG", "").strip()
     environment = os.getenv("ANYPOINT_ENV", "").strip()
+    if business_group:
+        command.extend(["--organization", business_group])
     if environment:
         command.extend(["--environment", environment])
     return subprocess.run(command, text=True, capture_output=True, check=False)
