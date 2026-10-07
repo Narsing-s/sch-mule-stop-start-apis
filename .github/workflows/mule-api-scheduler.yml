@@ -44,9 +44,35 @@ on:
         required: false
         default: ""
         type: string
+      stop_time:
+        description: "Stop time in Asia/Kolkata (HH:MM)"
+        required: false
+        default: ""
+        type: string
+      stop_enabled:
+        description: "Enable scheduled stop"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+      start_time:
+        description: "Start time in Asia/Kolkata (HH:MM)"
+        required: false
+        default: ""
+        type: string
+      start_enabled:
+        description: "Enable scheduled start"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
 
 permissions:
-  contents: read
+  contents: write
   actions: write
 
 jobs:
@@ -67,12 +93,55 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Persist schedule configuration
+        if: ${{ inputs.action == 'save_schedule' || github.event.client_payload.action == 'save_schedule' }}
+        shell: bash
+        env:
+          SCHEDULE_BG: ${{ inputs.business_group || github.event.client_payload.business_group || '' }}
+          STOP_TIME: ${{ inputs.stop_time || github.event.client_payload.stop_time || '' }}
+          STOP_ENABLED: ${{ inputs.stop_enabled || github.event.client_payload.stop_enabled || 'true' }}
+          START_TIME: ${{ inputs.start_time || github.event.client_payload.start_time || '' }}
+          START_ENABLED: ${{ inputs.start_enabled || github.event.client_payload.start_enabled || 'true' }}
+        run: |
+          set -euo pipefail
+          [[ -n "$SCHEDULE_BG" ]] || { echo "::error::Business Group is required."; exit 1; }
+          [[ "$STOP_TIME" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || { echo "::error::Stop time must be HH:MM."; exit 1; }
+          [[ "$START_TIME" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || { echo "::error::Start time must be HH:MM."; exit 1; }
+          [[ "$STOP_ENABLED" == "true" || "$STOP_ENABLED" == "false" ]] || { echo "::error::Invalid stop_enabled."; exit 1; }
+          [[ "$START_ENABLED" == "true" || "$START_ENABLED" == "false" ]] || { echo "::error::Invalid start_enabled."; exit 1; }
+          cat > config/schedules.yml <<EOF
+          # Managed by MuleSoft Scheduler UI.
+          timezone: Asia/Kolkata
+          business_group: $SCHEDULE_BG
+
+          stop:
+            enabled: $STOP_ENABLED
+            time: "$STOP_TIME"
+
+          start:
+            enabled: $START_ENABLED
+            time: "$START_TIME"
+          EOF
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add config/schedules.yml
+          if git diff --cached --quiet; then
+            echo "::notice::Schedule is already up to date."
+          else
+            git commit -m "ui: update MuleSoft scheduler time [skip ci]"
+            git push origin HEAD:main
+            echo "::notice::Schedule saved to config/schedules.yml."
+          fi
+
       - name: Resolve next configured IST action and wait
         id: schedule
         shell: bash
         run: |
           set -euo pipefail
           requested_action="${{ inputs.action || github.event.client_payload.action || 'schedule' }}"
+          if [ "$requested_action" = "save_schedule" ]; then
+            requested_action="schedule"
+          fi
           requested_region="${{ inputs.region || github.event.client_payload.region || 'all' }}"
           requested_bg="${{ inputs.business_group || github.event.client_payload.business_group || '' }}"
           requested_api="${{ inputs.api || github.event.client_payload.api || '' }}"
