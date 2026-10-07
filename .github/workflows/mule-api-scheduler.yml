@@ -188,49 +188,46 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          anypoint-cli-v4 account:environment:list --output json > /tmp/environments.json
+          python3 - <<'PY'
+          import json, os, subprocess
 
-          python3 - "$GITHUB_ENV" /tmp/environments.json <<'PY'
-          import json
-          import sys
+          requested = os.environ.get("ANYPOINT_ENV", "").strip()
+          if not requested:
+              raise SystemExit("ANYPOINT_ENV is empty. Set the GitHub Environment variable ANYPOINT_ENVIRONMENT.")
 
-          target = "sandbox"
-          with open(sys.argv[2], encoding="utf-8") as f:
-              data = json.load(f)
+          p = subprocess.run(
+              ["anypoint-cli-v4", "account:environment:list", "--output", "json"],
+              text=True, capture_output=True, check=False
+          )
+          if p.returncode != 0:
+              print(p.stdout)
+              print(p.stderr)
+              raise SystemExit(p.returncode)
 
+          data = json.loads(p.stdout)
           names = []
-          seen = set()
 
-          def walk(value):
-              if isinstance(value, dict):
-                  yield value
-                  for child in value.values():
-                      yield from walk(child)
-              elif isinstance(value, list):
-                  for child in value:
-                      yield from walk(child)
+          def walk(v):
+              if isinstance(v, dict):
+                  for k, val in v.items():
+                      if k in ("name", "environmentName") and val:
+                          names.append(str(val).strip())
+                      walk(val)
+              elif isinstance(v, list):
+                  for x in v:
+                      walk(x)
 
-          for obj in walk(data):
-              if isinstance(obj, dict):
-                  for key in ("name", "environmentName"):
-                      value = obj.get(key)
-                      if value:
-                          name = str(value).strip()
-                          if name and name.lower() not in seen:
-                              seen.add(name.lower())
-                              names.append(name)
-
-          matches = [name for name in names if name.lower() == target]
+          walk(data)
+          matches = [n for n in names if n.lower() == requested.lower()]
           if not matches:
-              print(f"::error::Anypoint environment '{target}' is not visible to this Connected App.")
+              print(f"::error::Anypoint environment '{requested}' was not found for this Connected App.")
               print("Visible environments:")
-              for name in names:
-                  print("  - " + name)
+              for n in dict.fromkeys(names):
+                  print("  - " + n)
               raise SystemExit(2)
 
-          with open(sys.argv[1], "a", encoding="utf-8") as f:
-              f.write("ANYPOINT_ENV=" + matches[0] + "\n")
-
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as out:
+              out.write("ANYPOINT_ENV=" + matches[0] + "\n")
           print("Using exact Anypoint environment:", matches[0])
           PY
 
