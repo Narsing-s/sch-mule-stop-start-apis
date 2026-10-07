@@ -61,7 +61,7 @@ jobs:
     timeout-minutes: 360
     environment: sandbox
     concurrency:
-      group: mule-api-scheduler-${{ inputs.action || 'schedule' }}-${{ inputs.group || 'all' }}-${{ inputs.region || 'all' }}
+      group: mule-api-scheduler-${{ inputs.action || 'schedule' }}-${{ inputs.business_group || 'Learning' }}-${{ inputs.group || 'all' }}-${{ inputs.region || 'all' }}
       cancel-in-progress: true
     env:
       ANYPOINT_CLIENT_ID: ${{ secrets.ANYPOINT_CLIENT_ID }}
@@ -205,7 +205,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "Completed scheduled action; queueing the next daily cycle with workflow_dispatch."
-          gh workflow run mule-api-scheduler.yml --repo "${{ github.repository }}" --ref main             -f action=schedule -f group=all -f region=all
+          gh workflow run mule-api-scheduler.yml --repo "${{ github.repository }}" --ref main             -f action=schedule -f group=all -f region=all -f business_group="${{ steps.schedule.outputs.business_group || inputs.business_group || 'Learning' }}"
           echo "::notice::Next daily scheduler cycle queued."
 
       - name: Publish execution summary
@@ -219,6 +219,7 @@ jobs:
             echo "| Setting | Value |"
             echo "|---|---|"
             echo "| Environment | **sandbox** |"
+            echo "| Business Group | **${{ steps.schedule.outputs.business_group || inputs.business_group || 'Learning' }}** |"
             echo "| Anypoint environment | **${ANYPOINT_ENV:-unknown}** |"
             echo "| Action | **${MULE_ACTION^^}** |"
             echo "| Configured time | **${CONFIGURED_TIME} IST** |"
