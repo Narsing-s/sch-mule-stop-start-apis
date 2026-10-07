@@ -318,41 +318,33 @@ def _application_state(app: Application) -> str:
     return "UNKNOWN"
 def control(app: Application, action: str):
     started = time.monotonic()
-    command_name = "runtime-mgr:application:%s" % action
-    print("[%s] %s/%s -> %s (%s)" % (action.upper(), app.environment, app.name, command_name, app.app_id), flush=True)
+    command_name = f"runtime-mgr:application:{action}"
+    print(f"[{action.upper()}] {app.environment}/{app.name} -> {command_name} ({app.app_id})", flush=True)
 
     expected = "STARTED" if action == "start" else "STOPPED"
     before = "UNKNOWN"
-    try:
-        before = _application_state(app)
-        print("[%s] %s initial state=%s" % (app.name, before), flush=True)
-        if action == "start" and before == "STARTED":
-            return app, True, "STARTED (already running)", time.monotonic() - started
-        if action == "stop" and before == "STOPPED":
-            return app, True, "STOPPED (already stopped)", time.monotonic() - started
-    except Exception as exc:
-        print("[WARN] %s initial state lookup: %s" % (app.name, exc), flush=True)
-
+    # Issue lifecycle commands immediately. The previous implementation made
+    # a separate state lookup before every API, causing dozens of CLI calls.
     result = cli(app.environment, command_name, app.app_id)
     if result.returncode != 0:
         detail = _compact(result.stderr or result.stdout)
-        return app, False, "CLI failed: %s" % detail, time.monotonic() - started
+        return app, False, f"CLI failed: {detail}", time.monotonic() - started
 
     deadline = time.monotonic() + (TIMEOUT_SECONDS if TIMEOUT_SECONDS > 0 else 300)
     last = before
     while time.monotonic() < deadline:
         try:
             last = _application_state(app)
-            print("[%s] %s state=%s (before=%s)" % (app.name, last, before), flush=True)
+            print(f"[{app.name}] {last} (expected={expected})", flush=True)
             if action == "start" and last == "STARTED":
                 return app, True, "STARTED", time.monotonic() - started
             if action == "stop" and last == "STOPPED":
                 return app, True, "STOPPED", time.monotonic() - started
         except Exception as exc:
-            last = "STATE_LOOKUP_ERROR: %s" % _compact(str(exc))
+            last = f"STATE_LOOKUP_ERROR: {_compact(str(exc))}"
         time.sleep(POLL_SECONDS)
 
-    return app, False, "Expected %s; final state=%s" % (expected, last), time.monotonic() - started
+    return app, False, f"Expected {expected}; final state={last}", time.monotonic() - started
 def write_analytics(action, business_group, applications, results, started, error=""):
     path = Path(os.getenv("MULE_ANALYTICS_FILE", "mule-execution-analytics.json"))
     successful = sum(1 for _, ok, _, _ in results if ok)
@@ -394,22 +386,19 @@ def write_analytics(action, business_group, applications, results, started, erro
         "results": rows,
     }
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    print("Analytics written to %s" % path, flush=True)
+    print(f"Analytics written to {path}", flush=True)
     summary = os.getenv("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as f:
             f.write("\n## Execution Analytics\n")
-            f.write("**%s — %s/%s successful; %s failed.**\n\n" %
-                    (action.upper(), data["successful"], data["total"], data["failed"]))
+            f.write(f"**{action.upper()} — {data['successful']}/{data['total']} successful; {data['failed']} failed.**\n\n")
             if error:
-                f.write("**Error:** %s\n\n" % error)
+                f.write(f"**Error:** {error}\n\n")
             f.write("| Environment | Region | API | Result | Final state | Duration |\n")
             f.write("|---|---|---|---|---|---:|\n")
             for row in rows:
                 safe_state = str(row["final_state"]).replace("|", "/")
-                f.write("| %s | %s | %s | %s | %s | %ss |\n" %
-                        (row["environment"], row["region"].upper(), row["api"],
-                         row["result"], safe_state, row["duration_seconds"]))
+                f.write(f"| {row['environment']} | {row['region'].upper()} | {row['api']} | {row['result']} | {safe_state} | {row['duration_seconds']}s |\n")
     return data
 
 def main() -> int:
