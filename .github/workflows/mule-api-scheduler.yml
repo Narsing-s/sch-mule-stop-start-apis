@@ -283,5 +283,5 @@ jobs:
           gh run list --repo "${{ github.repository }}" --workflow mule-api-scheduler.yml --status failure --limit 100 --json databaseId --jq '.[].databaseId' |
           while IFS= read -r run_id; do
             [[ -z "$run_id" || "$run_id" == "$current" ]] && continue
-            gh run delete "$run_id" --repo "${{ github.repository }}" --confirm
+            gh api --method DELETE "repos/${{ github.repository }}/actions/runs/$run_id"
           done
