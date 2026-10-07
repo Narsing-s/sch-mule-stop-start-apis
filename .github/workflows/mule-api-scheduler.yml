@@ -213,6 +213,16 @@ jobs:
           echo "::error::Scheduler resolved an invalid action: '${{ steps.schedule.outputs.action }}'. Expected start or stop."
           exit 1
 
+      - name: Queue next daily scheduler cycle
+        if: ${{ steps.schedule.outputs.handoff != 'true' && (github.event_name == 'push' || inputs.action == 'schedule') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Completed scheduled action; queueing the next daily cycle with workflow_dispatch."
+          gh workflow run mule-api-scheduler.yml --repo "${{ github.repository }}" --ref main -f action=schedule -f group=all -f region=all -f business_group="${{ steps.schedule.outputs.business_group || inputs.business_group }}"
+          echo "::notice::Next daily scheduler cycle queued."
       - name: Publish execution summary
         if: always()
         env:
