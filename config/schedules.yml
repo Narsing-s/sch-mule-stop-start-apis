@@ -2,6 +2,7 @@
 # Change these times without editing the GitHub Actions workflow.
 # Automatic scheduler trigger: this config push starts the waiting workflow immediately.
 # Workflow implementation verified after scheduler repair.
+# Manual trigger test: 2026-10-07
 timezone: Asia/Kolkata
 
 stop:
