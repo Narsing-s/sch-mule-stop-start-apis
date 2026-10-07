@@ -1,45 +1,15 @@
 name: MuleSoft API Auto Start Stop
 
-run-name: "MuleSoft API Scheduler - ${{ github.event_name == 'schedule' && 'automatic' || inputs.action }}"
+run-name: "MuleSoft API Scheduler - automatic"
 
 on:
   schedule:
     # GENERATED FROM config/schedules.yml. Business times remain normal 24-hour IST.
-    # This is not polling. The registration workflow refreshes these entries when config changes.
+    # This is not polling. Times are registered from config/schedules.yml.
     - cron: "20 9 * * *"
       timezone: "Asia/Kolkata"
     - cron: "50 9 * * *"
       timezone: "Asia/Kolkata"
-  workflow_dispatch:
-    inputs:
-      action:
-        description: "MuleSoft application lifecycle action"
-        required: true
-        type: choice
-        options: [stop, start]
-      environment:
-        description: "Anypoint/GitHub Environment"
-        required: true
-        type: choice
-        options: [sandbox]
-      business_group:
-        description: "Business group"
-        required: true
-        type: string
-        default: all
-      group:
-        description: "API group"
-        required: true
-        type: choice
-        default: all
-        options: [all, eapi, papi, sapi, other]
-      region:
-        description: "API region"
-        required: true
-        type: choice
-        default: all
-        options: [all, west, westb, east]
-
 permissions:
   contents: read
 
@@ -48,7 +18,7 @@ jobs:
     concurrency:
       group: mule-api-scheduler-${{ matrix.environment }}
       cancel-in-progress: false
-    name: "${{ matrix.environment }} / ${{ github.event_name == 'workflow_dispatch' && inputs.group || 'all' }} / ${{ github.event_name == 'workflow_dispatch' && inputs.action || github.event_name == 'push' && 'workflow-install-check' || 'automatic' }}"
+    name: "${{ matrix.environment }} / ${{ 'all' }} / ${{ 'automatic' }}"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -63,7 +33,7 @@ jobs:
       ANYPOINT_ORG: ${{ secrets.ANYPOINT_ORG_ID }}
       ANYPOINT_ENV: ${{ vars.ANYPOINT_ENVIRONMENT }}
       ANYPOINT_HOST: ${{ vars.ANYPOINT_HOST || 'anypoint.mulesoft.com' }}
-      MULE_GROUP: ${{ github.event_name == 'workflow_dispatch' && inputs.group || 'all' }}
+      MULE_GROUP: ${{ false && inputs.group || 'all' }}
       MULE_BUSINESS_GROUP: ${{ github.event_name == 'workflow_dispatch' && inputs.business_group || 'all' }}
       MULE_REGION: ${{ github.event_name == 'workflow_dispatch' && inputs.region || 'all' }}
       SELECTED_ENVIRONMENT: sandbox
