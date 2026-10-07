@@ -45,7 +45,7 @@ jobs:
           import re
 
           text = Path(".github/workflows/mule-api-scheduler.yml").read_text()
-          if "*/5 * * * *" in text:
+          if "*"+"/5 * * * *" in text:
               raise SystemExit("Polling schedule detected; refusing registration.")
           if "config/schedules.yml" not in text:
               raise SystemExit("Generated workflow lost its config reference.")
