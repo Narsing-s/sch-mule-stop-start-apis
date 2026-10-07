@@ -18,8 +18,8 @@ permissions:
   contents: read
 
 jobs:
-  wait-for-configured-time:
-    name: "sandbox / wait for configured IST time"
+  run-scheduled-action:
+    name: "sandbox / wait for configured IST action"
     runs-on: ubuntu-latest
     timeout-minutes: 360
     environment: sandbox
@@ -31,125 +31,60 @@ jobs:
       ANYPOINT_CLIENT_SECRET: ${{ secrets.ANYPOINT_CLIENT_SECRET }}
       ANYPOINT_ORG: ${{ secrets.ANYPOINT_ORG_ID }}
       ANYPOINT_HOST: ${{ vars.ANYPOINT_HOST || 'anypoint.mulesoft.com' }}
-    outputs:
-      action: ${{ steps.schedule.outputs.action }}
-      configured_time: ${{ steps.schedule.outputs.configured_time }}
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Resolve configured IST time and wait
+      - name: Resolve next configured IST action and wait
         id: schedule
         shell: bash
         run: |
           set -euo pipefail
-
           python3 - <<'PY'
           from datetime import datetime, timedelta
           from pathlib import Path
           from zoneinfo import ZoneInfo
-          import os
-          import re
-          import time
-
-          text = Path("config/schedules.yml").read_text(encoding="utf-8")
-
-          timezone_match = re.search(
-              r'(?m)^\s*timezone:\s*["\']?([^\r\n"\']+)["\']?\s*$',
-              text,
-          )
-          timezone = timezone_match.group(1).strip() if timezone_match else "Asia/Kolkata"
-
-          if timezone != "Asia/Kolkata":
-              raise SystemExit(
-                  f"Only Asia/Kolkata is supported; found {timezone!r}"
-              )
-
-          def section(name):
-              match = re.search(
-                  rf"(?ms)^{re.escape(name)}:\s*\n(.*?)(?=^[A-Za-z0-9_-]+:\s*$|\Z)",
-                  text,
-              )
-              return match.group(1) if match else ""
-
-          def setting(name, key, default=None):
-              body = section(name)
-              match = re.search(
-                  rf'(?m)^\s*{re.escape(key)}:\s*["\']?([^"\'\r\n]+)["\']?\s*$',
-                  body,
-              )
-              return match.group(1).strip() if match else default
-
-          now = datetime.now(ZoneInfo("Asia/Kolkata"))
-          candidates = []
-
-          for action in ("stop", "start"):
-              enabled = setting(action, "enabled", "true").lower() in {"true", "yes", "1"}
-              if not enabled:
-                  continue
-
-              value = setting(action, "time")
-              if not value or not re.fullmatch(r"\d{2}:\d{2}", value):
-                  raise SystemExit(f"Invalid {action}.time: {value!r}")
-
-              hour, minute = map(int, value.split(":"))
-              if hour > 23 or minute > 59:
-                  raise SystemExit(f"Invalid {action}.time: {value!r}")
-
-              target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-              if target <= now:
-                  target += timedelta(days=1)
-
-              candidates.append((target, action, value))
-
-          if not candidates:
-              raise SystemExit("No enabled stop/start schedule is configured.")
-
-          target, action, value = min(candidates)
-          seconds = max(0, int((target - now).total_seconds()))
-
-          print(f"Current IST time : {now:%Y-%m-%d %H:%M:%S}")
-          print(f"Configured action : {action}")
-          print(f"Configured time   : {value} IST")
-          print(f"Next execution    : {target:%Y-%m-%d %H:%M:%S} IST")
-          print(f"Wait seconds      : {seconds}")
-
-          if seconds > 6 * 60 * 60:
-              raise SystemExit(
-                  f"Next configured time is {seconds / 3600:.2f} hours away. "
-                  "The immediate-wait model supports times within six hours."
-              )
-
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
-              out.write(f"action={action}\n")
-              out.write(f"configured_time={value}\n")
-
+          import os, re, time
+          text=Path("config/schedules.yml").read_text(encoding="utf-8")
+          tz=re.search(r'(?m)^\\s*timezone:\\s*["\\']?([^\\r\\n"\\']+)["\\']?\\s*$',text)
+          if (tz.group(1).strip() if tz else "Asia/Kolkata") != "Asia/Kolkata":
+              raise SystemExit("Only Asia/Kolkata is supported.")
+          now=datetime.now(ZoneInfo("Asia/Kolkata"))
+          candidates=[]
+          for action in ("stop","start"):
+              m=re.search(rf'(?ms)^{action}:\\s*\\n(.*?)(?=^[A-Za-z0-9_-]+:\\s*$|\\Z)',text)
+              body=m.group(1) if m else ""
+              en=re.search(r'(?m)^\\s*enabled:\\s*(true|false)',body)
+              tm=re.search(r'(?m)^\\s*time:\\s*["\\']?(\\d{2}:\\d{2})["\\']?',body)
+              if not en or en.group(1).lower()!="true": continue
+              if not tm: raise SystemExit(f"Invalid {action}.time")
+              h,mi=map(int,tm.group(1).split(":"))
+              target=now.replace(hour=h,minute=mi,second=0,microsecond=0)
+              if target<=now: target+=timedelta(days=1)
+              candidates.append((target,action,tm.group(1)))
+          if not candidates: raise SystemExit("No enabled stop/start schedule is configured.")
+          target,action,value=min(candidates)
+          seconds=int(max(0,(target-now).total_seconds()))
+          print(f"Current IST time: {now:%Y-%m-%d %H:%M:%S}")
+          print(f"Next action: {action} at {value} IST ({target:%Y-%m-%d %H:%M:%S})")
+          if seconds>6*60*60:
+              raise SystemExit(f"Next configured time is {seconds/3600:.2f} hours away. GitHub-hosted waiting is limited to six hours; choose a nearer time or trigger again.")
+          with open(os.environ["GITHUB_OUTPUT"],"a") as out:
+              out.write(f"action={action}\\nconfigured_time={value}\\n")
           if seconds:
-              print(f"Waiting {seconds} seconds for {action}...")
+              print(f"Waiting {seconds} seconds...")
               time.sleep(seconds)
-
-          print(f"Reached configured time: {value} IST")
+          print("Configured time reached.")
           PY
 
       - name: Validate credentials and configuration
         shell: bash
         run: |
           set -euo pipefail
-
           for name in ANYPOINT_CLIENT_ID ANYPOINT_CLIENT_SECRET ANYPOINT_ORG; do
-            if [[ -z "${!name:-}" ]]; then
-              echo "::error::Missing $name in GitHub Environment 'sandbox'."
-              exit 1
-            fi
+            if [[ -z "${!name:-}" ]]; then echo "::error::Missing $name in GitHub Environment 'sandbox'."; exit 1; fi
           done
-
-          # ANYPOINT_ENV is resolved automatically later by the Anypoint CLI.
-          for file in \
-            config/eapi/all/apis.txt config/eapi/west/apis.txt config/eapi/westb/apis.txt config/eapi/east/apis.txt \
-            config/papi/all/apis.txt config/papi/west/apis.txt config/papi/westb/apis.txt config/papi/east/apis.txt \
-            config/sapi/all/apis.txt config/sapi/west/apis.txt config/sapi/westb/apis.txt config/sapi/east/apis.txt \
-            config/other/all/apis.txt config/other/west/apis.txt config/other/westb/apis.txt config/other/east/apis.txt; do
+          for file in config/eapi/all/apis.txt config/eapi/west/apis.txt config/eapi/westb/apis.txt config/eapi/east/apis.txt config/papi/all/apis.txt config/papi/west/apis.txt config/papi/westb/apis.txt config/papi/east/apis.txt config/sapi/all/apis.txt config/sapi/west/apis.txt config/sapi/westb/apis.txt config/sapi/east/apis.txt config/other/all/apis.txt config/other/west/apis.txt config/other/westb/apis.txt config/other/east/apis.txt; do
             test -f "$file" || { echo "::error::Missing $file"; exit 1; }
           done
 
@@ -164,103 +99,50 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          response="$(curl -sS -w '\n%{http_code}' \
-            -X POST "https://${ANYPOINT_HOST}/accounts/api/v2/oauth2/token" \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            --data-urlencode "grant_type=client_credentials" \
-            --data-urlencode "client_id=${ANYPOINT_CLIENT_ID}" \
-            --data-urlencode "client_secret=${ANYPOINT_CLIENT_SECRET}")"
-
-          status="$(printf '%s\n' "$response" | tail -n1)"
-          body="$(printf '%s\n' "$response" | sed '$d')"
-
-          if [[ "$status" != "200" ]]; then
-            message="$(printf '%s' "$body" | jq -r '.error_description // .message // .error // empty' 2>/dev/null || true)"
-            echo "::error::sandbox Connected App authentication failed: HTTP $status $message"
-            exit 1
-          fi
-
+          response="$(curl -sS -w '\\n%{http_code}' -X POST "https://${ANYPOINT_HOST}/accounts/api/v2/oauth2/token" -H "Content-Type: application/x-www-form-urlencoded" --data-urlencode "grant_type=client_credentials" --data-urlencode "client_id=${ANYPOINT_CLIENT_ID}" --data-urlencode "client_secret=${ANYPOINT_CLIENT_SECRET}")"
+          status="$(printf '%s\\n' "$response" | tail -n1)"
+          body="$(printf '%s\\n' "$response" | sed '$d')"
+          if [[ "$status" != "200" ]]; then echo "::error::Connected App authentication failed: HTTP $status"; exit 1; fi
           token="$(printf '%s' "$body" | jq -r '.access_token // empty')"
           [[ -n "$token" ]] || { echo "::error::No access_token returned."; exit 1; }
-          echo "::notice::sandbox Connected App authentication successful."
+          echo "::notice::Connected App authentication successful."
 
       - name: Automatically select Sandbox Anypoint environment
-        id: resolve-environment
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import json, os, subprocess
-
-          p = subprocess.run(
-              ["anypoint-cli-v4", "account:environment:list", "--output", "json"],
-              text=True, capture_output=True, check=False
-          )
+          p=subprocess.run(["anypoint-cli-v4","account:environment:list","--output","json"],text=True,capture_output=True,check=False)
           print(p.stdout)
-          if p.returncode != 0:
-              print(p.stderr)
-              raise SystemExit(p.returncode)
-
-          data = json.loads(p.stdout)
-          environments = []
-
+          if p.returncode: print(p.stderr); raise SystemExit(p.returncode)
+          data=json.loads(p.stdout); envs=[]
           def walk(v):
-              if isinstance(v, dict):
-                  if any(k in v for k in ("name", "environmentName")):
-                      environments.append(v)
-                  for value in v.values():
-                      walk(value)
-              elif isinstance(v, list):
-                  for value in v:
-                      walk(value)
-
+              if isinstance(v,dict):
+                  if "name" in v or "environmentName" in v: envs.append(v)
+                  for x in v.values(): walk(x)
+              elif isinstance(v,list):
+                  for x in v: walk(x)
           walk(data)
-
-          def name(e):
-              return str(e.get("name") or e.get("environmentName") or "").strip()
-
-          def typ(e):
-              return str(e.get("type") or e.get("environmentType") or "").strip()
-
-          sandbox = [e for e in environments if name(e).lower() == "sandbox" or typ(e).lower() == "sandbox"]
-
-          unique = []
-          seen = set()
-          for e in sandbox:
-              key = (name(e).lower(), str(e.get("id") or e.get("environmentId") or ""))
-              if key not in seen:
-                  seen.add(key)
-                  unique.append(e)
-
-          if not unique:
-              print("::error::No accessible Anypoint Sandbox environment was found for this Connected App.")
-              print("Accessible environments returned by Anypoint CLI:")
-              for e in environments:
-                  print(f"  - name={name(e)!r}, type={typ(e)!r}, id={e.get('id') or e.get('environmentId')!r}")
-              raise SystemExit(2)
-
-          exact = [e for e in unique if name(e).lower() == "sandbox"]
-          if len(exact) == 1:
-              selected = exact[0]
-          elif len(unique) == 1:
-              selected = unique[0]
-          else:
-              print("::error::Multiple accessible Sandbox environments were found; refusing to guess.")
-              for e in unique:
-                  print(f"  - name={name(e)!r}, type={typ(e)!r}, id={e.get('id') or e.get('environmentId')!r}")
-              raise SystemExit(3)
-
-          selected_name = name(selected)
-          selected_id = str(selected.get("id") or selected.get("environmentId") or "").strip()
-          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as out:
-              out.write("ANYPOINT_ENV=" + selected_name + "\n")
-              out.write("ANYPOINT_ENV_ID=" + selected_id + "\n")
-
-          print(f"::notice::Automatically selected Anypoint Sandbox environment: {selected_name} (id={selected_id or 'n/a'})")
+          def name(e): return str(e.get("name") or e.get("environmentName") or "").strip()
+          def typ(e): return str(e.get("type") or e.get("environmentType") or "").strip()
+          matches=[e for e in envs if name(e).lower()=="sandbox" or typ(e).lower()=="sandbox"]
+          unique=[]; seen=set()
+          for e in matches:
+              k=(name(e).lower(),str(e.get("id") or e.get("environmentId") or ""))
+              if k not in seen: seen.add(k); unique.append(e)
+          exact=[e for e in unique if name(e).lower()=="sandbox"]
+          if len(exact)==1: selected=exact[0]
+          elif len(unique)==1: selected=unique[0]
+          elif not unique: raise SystemExit("No accessible Anypoint Sandbox environment was found.")
+          else: raise SystemExit("Multiple accessible Sandbox environments found; refusing to guess.")
+          with open(os.environ["GITHUB_ENV"],"a") as out:
+              out.write("ANYPOINT_ENV="+name(selected)+"\\n")
+              out.write("ANYPOINT_ENV_ID="+str(selected.get("id") or selected.get("environmentId") or "")+"\\n")
+          print(f"::notice::Selected Sandbox Anypoint environment: {name(selected)}")
           PY
 
       - name: Start or stop configured applications
-        shell: bash
         env:
           MULE_ACTION: ${{ steps.schedule.outputs.action }}
           MULE_GROUP: all
@@ -272,25 +154,21 @@ jobs:
 
       - name: Publish execution summary
         if: always()
-        shell: bash
         env:
           MULE_ACTION: ${{ steps.schedule.outputs.action }}
           CONFIGURED_TIME: ${{ steps.schedule.outputs.configured_time }}
         run: |
           {
             echo "## MuleSoft API Scheduler"
-            echo ""
             echo "| Setting | Value |"
             echo "|---|---|"
             echo "| Environment | **sandbox** |"
             echo "| Anypoint environment | **${ANYPOINT_ENV:-unknown}** |"
-            echo "| API group | **ALL** |"
-            echo "| Region | **ALL** |"
             echo "| Action | **${MULE_ACTION^^}** |"
             echo "| Configured time | **${CONFIGURED_TIME} IST** |"
-            echo "| Trigger | **Configuration/API-list push** |"
-            echo "| Scheduling model | **Starts immediately, waits for config time, then executes — no cron** |"
+            echo "| Scheduling model | **Immediate trigger + wait; no cron** |"
           } >> "$GITHUB_STEP_SUMMARY"
+
 
   cleanup-failed-runs:
     name: "Remove old failed scheduler runs"
