@@ -7,11 +7,11 @@ timezone: Asia/Kolkata
 
 stop:
   enabled: true
-  time: "16:25"
+  time: "16:40"
 
 start:
   enabled: true
-  time: "16:30"
+  time: "16:45"
 
 # Scheduler retry after automatic Sandbox environment selection fix.
 # No-cron handoff chain enabled.
