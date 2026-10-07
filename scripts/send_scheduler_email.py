@@ -28,19 +28,19 @@ def main() -> int:
     run_url = os.getenv("GITHUB_SERVER_URL", "https://github.com").rstrip("/") + "/" + os.getenv("GITHUB_REPOSITORY", "") + "/actions/runs/" + os.getenv("GITHUB_RUN_ID", "")
     lines = [
         subject, "",
-        f"Business Group: {data.get("business_group", "")}",
-        f"Environment: {data.get("environment", "")}",
-        f"Group: {data.get("group", "all")}",
-        f"Region: {data.get("region", "all")}",
-        f"Total APIs: {data.get("total", 0)}",
-        f"Successful: {data.get("successful", 0)}",
+        f"Business Group: {data.get('business_group', '')}",
+        f"Environment: {data.get('environment', '')}",
+        f"Group: {data.get('group', 'all')}",
+        f"Region: {data.get('region', 'all')}",
+        f"Total APIs: {data.get('total', 0)}",
+        f"Successful: {data.get('successful', 0)}",
         f"Failed: {failed}",
-        f"Execution time: {data.get("total_duration_seconds", 0)} seconds",
-        f"Poll interval: {data.get("poll_interval_seconds", 0)} seconds", "",
+        f"Execution time: {data.get('total_duration_seconds', 0)} seconds",
+        f"Poll interval: {data.get('poll_interval_seconds', 0)} seconds", "",
         "API-level results:",
     ]
     for row in data.get("results", []):
-        lines.append(f"- {row.get("group","").upper()}/{row.get("region","").upper()} {row.get("api","")}: {row.get("result","")} - {row.get("final_state","")} ({row.get("duration_seconds",0)}s)")
+        lines.append(f"- {row.get('group','').upper()}/{row.get('region','').upper()} {row.get('api','')}: {row.get('result','')} - {row.get('final_state','')} ({row.get('duration_seconds',0)}s)")
     lines.extend(["", f"GitHub Actions run: {run_url}"])
     msg = EmailMessage()
     msg["Subject"], msg["From"], msg["To"] = subject, sender, recipient
