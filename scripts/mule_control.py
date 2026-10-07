@@ -217,134 +217,160 @@ def _compact(text: str, limit: int = 1200) -> str:
     return value[:limit] + ("..." if len(value) > limit else "")
 
 
-def _application_state(app: Application) -> str:
-    """Return the actual CloudHub 2.0 runtime/replica lifecycle state.
+def _application_states(applications: list[Application]) -> dict[tuple[str, str], str]:
+    """Read lifecycle state for all applications with one list call per environment."""
+    states: dict[tuple[str, str], str] = {}
+    by_environment: dict[str, list[Application]] = {}
+    for app in applications:
+        by_environment.setdefault(app.environment.lower(), []).append(app)
 
-    CloudHub 2.0 exposes both configuration/deployment status (for example
-    APPLIED) and the actual application/replica lifecycle status. APPLIED is
-    not a running/stopped state, so it must never be used to decide whether
-    START/STOP completed.
-    """
-    commands = [
-        ("runtime-mgr:application:describe-json", [app.app_id]),
-        ("runtime-mgr:application:describe", [app.app_id, "--output", "json"]),
-        ("runtime-mgr:application:list", ["--output", "json"]),
-    ]
-    payload = None
-    last_error = ""
-    for command, args in commands:
-        result = cli(app.environment, command, *args)
-        if result.returncode == 0 and result.stdout.strip():
-            try:
-                payload = parse_json(result.stdout or result.stderr)
-                break
-            except RuntimeError as exc:
-                last_error = str(exc)
-        else:
-            last_error = _compact(result.stderr or result.stdout)
+    for apps in by_environment.values():
+        environment = apps[0].environment
+        result = cli(environment, "runtime-mgr:application:list", "--output", "json")
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"state list failed for environment {environment}: "
+                f"{_compact(result.stderr or result.stdout)}"
+            )
+        payload = parse_json(result.stdout or result.stderr)
+        wanted = {
+            (app.app_id.strip().lower(), app.name.strip().lower()): app
+            for app in apps
+        }
 
-    if payload is None:
-        raise RuntimeError("state lookup failed: " + (last_error or "empty response"))
-
-    wanted = app.app_id.strip().lower()
-    wanted_name = app.name.strip().lower()
-    candidates = []
-    for obj in walk(payload):
-        if not isinstance(obj, dict):
-            continue
-        oid = str(obj.get("id") or obj.get("applicationId") or "").strip().lower()
-        oname = str(obj.get("name") or obj.get("applicationName") or "").strip().lower()
-        if oid == wanted or oname == wanted_name:
-            candidates.append(obj)
-    if not candidates:
-        # describe-json can return the application object directly without an
-        # id/name wrapper. If so, use it rather than incorrectly reporting
-        # that the application is missing.
-        if isinstance(payload, dict):
-            candidates = [payload]
-        else:
-            raise RuntimeError("application was not present in Anypoint response")
-
-    values = []
-    actual_keys = {
-        "status", "state", "applicationstatus", "deploymentstatus",
-        "replicastatus", "workerstates", "workerstatus",
-    }
-    ignored_values = {
-        "", "UNKNOWN", "APPLIED", "DEPLOYING", "APPLYING", "PENDING",
-        "UPDATING", "UPDATED", "DEPLOYMENT", "DEPLOYED",
-    }
-
-    for obj in candidates:
-        for key, value in obj.items():
-            normalized_key = str(key).replace("_", "").replace("-", "").lower()
-            if normalized_key not in actual_keys:
+        for obj in walk(payload):
+            if not isinstance(obj, dict):
                 continue
-            if isinstance(value, (str, int, float, bool)):
-                values.append(str(value).strip().upper())
-            elif isinstance(value, list):
-                for item in value:
-                    if isinstance(item, dict):
-                        for child_key in ("status", "state", "replicaStatus", "workerStatus"):
-                            child = item.get(child_key)
-                            if child is not None:
-                                values.append(str(child).strip().upper())
-            elif isinstance(value, dict):
-                for child_key in ("status", "state"):
-                    child = value.get(child_key)
-                    if child is not None:
-                        values.append(str(child).strip().upper())
+            oid = str(obj.get("id") or obj.get("applicationId") or "").strip().lower()
+            oname = str(obj.get("name") or obj.get("applicationName") or "").strip().lower()
+            app = next(
+                (a for (aid, aname), a in wanted.items()
+                 if (oid and aid == oid) or (oname and aname == oname)),
+                None,
+            )
+            if app is None:
+                continue
 
-    # Also collect lifecycle status fields nested below deployment/replica
-    # objects, while intentionally ignoring desiredState/configuration status.
-    for obj in walk(candidates[0]):
-        if not isinstance(obj, dict):
-            continue
-        for key in ("status", "state", "applicationStatus", "replicaStatus", "workerStatus"):
-            value = obj.get(key)
-            if value is not None and not isinstance(value, (dict, list)):
-                values.append(str(value).strip().upper())
+            values = []
+            for key, value in obj.items():
+                normalized_key = str(key).replace("_", "").replace("-", "").lower()
+                if normalized_key not in {
+                    "status", "state", "applicationstatus", "deploymentstatus",
+                    "replicastatus", "workerstates", "workerstatus",
+                }:
+                    continue
+                if isinstance(value, (str, int, float, bool)):
+                    values.append(str(value).strip().upper())
+                elif isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, dict):
+                            for child_key in ("status", "state", "replicaStatus", "workerStatus"):
+                                child = item.get(child_key)
+                                if child is not None:
+                                    values.append(str(child).strip().upper())
+                elif isinstance(value, dict):
+                    for child_key in ("status", "state"):
+                        child = value.get(child_key)
+                        if child is not None:
+                            values.append(str(child).strip().upper())
 
-    values = [v.replace("-", "_").replace(" ", "_") for v in values if v not in ignored_values]
+            for nested in walk(obj):
+                if not isinstance(nested, dict):
+                    continue
+                for key in ("status", "state", "applicationStatus", "replicaStatus", "workerStatus"):
+                    value = nested.get(key)
+                    if value is not None and not isinstance(value, (dict, list)):
+                        values.append(str(value).strip().upper())
 
-    if any(v in {"RUNNING", "STARTED", "STARTING"} for v in values):
-        return "STARTING" if "STARTING" in values and "RUNNING" not in values and "STARTED" not in values else "STARTED"
-    if any(v in {"STOPPING"} for v in values):
-        return "STOPPING"
-    if any(v in {"STOPPED", "NOT_RUNNING", "NOTRUNNING", "UNDEPLOYED", "DELETED"} for v in values):
-        return "STOPPED"
-    if any(v in {"FAILED", "TERMINATED", "RECOVERING"} for v in values):
-        return next(v for v in values if v in {"FAILED", "TERMINATED", "RECOVERING"})
-    return "UNKNOWN"
-def control(app: Application, action: str):
+            ignored = {
+                "", "UNKNOWN", "APPLIED", "DEPLOYING", "APPLYING", "PENDING",
+                "UPDATING", "UPDATED", "DEPLOYMENT", "DEPLOYED",
+            }
+            values = [v.replace("-", "_").replace(" ", "_") for v in values if v not in ignored]
+
+            if any(v in {"RUNNING", "STARTED"} for v in values):
+                state = "STARTED"
+            elif "STARTING" in values:
+                state = "STARTING"
+            elif "STOPPING" in values:
+                state = "STOPPING"
+            elif any(v in {"STOPPED", "NOT_RUNNING", "NOTRUNNING", "UNDEPLOYED", "DELETED"} for v in values):
+                state = "STOPPED"
+            elif any(v in {"FAILED", "TERMINATED", "RECOVERING"} for v in values):
+                state = next(v for v in values if v in {"FAILED", "TERMINATED", "RECOVERING"})
+            else:
+                state = "UNKNOWN"
+            states[(app.environment.lower(), app.app_id)] = state
+    return states
+
+
+def issue_lifecycle_command(app: Application, action: str):
     started = time.monotonic()
     command_name = f"runtime-mgr:application:{action}"
-    print(f"[{action.upper()}] {app.environment}/{app.name} -> {command_name} ({app.app_id})", flush=True)
-
-    expected = "STARTED" if action == "start" else "STOPPED"
-    before = "UNKNOWN"
-    # Issue lifecycle commands immediately. The previous implementation made
-    # a separate state lookup before every API, causing dozens of CLI calls.
+    print(
+        f"[{action.upper()}] {app.environment}/{app.name} -> "
+        f"{command_name} ({app.app_id})",
+        flush=True,
+    )
     result = cli(app.environment, command_name, app.app_id)
     if result.returncode != 0:
         detail = _compact(result.stderr or result.stdout)
         return app, False, f"CLI failed: {detail}", time.monotonic() - started
+    return app, True, "COMMAND_ACCEPTED", time.monotonic() - started
 
+
+def execute(applications: list[Application], action: str):
+    """Issue all lifecycle commands concurrently, then batch-verify actual state."""
+    expected = "STARTED" if action == "start" else "STOPPED"
+    results: dict[tuple[str, str], tuple[Application, bool, str, float]] = {}
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(12, max(1, len(applications)))) as executor:
+        futures = [executor.submit(issue_lifecycle_command, app, action) for app in applications]
+        for future in concurrent.futures.as_completed(futures):
+            app, ok, msg, duration = future.result()
+            results[(app.environment.lower(), app.app_id)] = (app, ok, msg, duration)
+
+    pending = [
+        app for app in applications
+        if results[(app.environment.lower(), app.app_id)][1]
+    ]
     deadline = time.monotonic() + (TIMEOUT_SECONDS if TIMEOUT_SECONDS > 0 else 300)
-    last = before
-    while time.monotonic() < deadline:
-        try:
-            last = _application_state(app)
-            print(f"[{app.name}] {last} (expected={expected})", flush=True)
-            if action == "start" and last == "STARTED":
-                return app, True, "STARTED", time.monotonic() - started
-            if action == "stop" and last == "STOPPED":
-                return app, True, "STOPPED", time.monotonic() - started
-        except Exception as exc:
-            last = f"STATE_LOOKUP_ERROR: {_compact(str(exc))}"
-        time.sleep(POLL_SECONDS)
+    last_states = {}
 
-    return app, False, f"Expected {expected}; final state={last}", time.monotonic() - started
+    while pending and time.monotonic() < deadline:
+        try:
+            last_states = _application_states(pending)
+            next_pending = []
+            for app in pending:
+                key = (app.environment.lower(), app.app_id)
+                state = last_states.get(key, "UNKNOWN")
+                print(f"[{app.name}] {state} (expected={expected})", flush=True)
+                if state == expected:
+                    old = results[key]
+                    results[key] = (app, True, state, old[3])
+                else:
+                    next_pending.append(app)
+            pending = next_pending
+            if pending:
+                time.sleep(POLL_SECONDS)
+        except Exception as exc:
+            print(f"[WARN] Batch state lookup: {_compact(str(exc))}", flush=True)
+            time.sleep(POLL_SECONDS)
+
+    for app in pending:
+        key = (app.environment.lower(), app.app_id)
+        old = results[key]
+        final_state = last_states.get(key, "UNKNOWN")
+        results[key] = (
+            app,
+            False,
+            f"Expected {expected}; final state={final_state}",
+            time.monotonic() - (time.monotonic() - old[3]),
+        )
+
+    return [results[(app.environment.lower(), app.app_id)] for app in applications]
+
+
 def write_analytics(action, business_group, applications, results, started, error=""):
     path = Path(os.getenv("MULE_ANALYTICS_FILE", "mule-execution-analytics.json"))
     successful = sum(1 for _, ok, _, _ in results if ok)
