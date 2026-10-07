@@ -1,2 +1,0 @@
-# PAPI applications that must be controlled in ALL regions (West + WestB + East).
-# One application name per line.
