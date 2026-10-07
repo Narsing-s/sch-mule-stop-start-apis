@@ -194,7 +194,9 @@ def resolve_targets(requested):
             matches = [(n,e,r) for n,e,r in discovered if n.lower() == name.lower()]
             unique = {e.lower(): e for _,e,_ in matches}
             if len(unique) != 1:
-                if not matches: raise RuntimeError(f"API {name} could not be found in any accessible Anypoint environment.")
+                if not matches:
+                    print(f"[SKIP] API {name} could not be found in any accessible Anypoint environment.", flush=True)
+                    continue
                 raise RuntimeError("API %s was found in multiple Anypoint environments: %s; configure its environment explicitly." % (name, ", ".join(unique.values())))
             resolved_requested.append(matches[0])
     by_environment = {}
@@ -210,11 +212,15 @@ def resolve_targets(requested):
         by_id = {app.app_id: app for app in available}
         for name, env, region in entries:
             app = by_name.get(name.lower()) or by_id.get(name)
-            if not app: missing.append(f"{env}/{region}:{name}"); continue
+            if not app:
+                missing.append(f"{env}/{region}:{name}")
+                print(f"[SKIP] {env}/{region} -> API {name} is not present in the Anypoint runtime; continuing with remaining APIs.", flush=True)
+                continue
             key = (env.lower(), app.app_id)
             if key in seen_ids: continue
             seen_ids.add(key); resolved.append(Application(app.name, env, region, app.app_id))
-    if missing: raise RuntimeError("Application(s) not found: " + ", ".join(missing))
+    if missing:
+        print(f"[WARN] Skipped {len(missing)} inventory API(s) that are not deployed in their configured Anypoint environment: {', '.join(missing)}", flush=True)
     return resolved
 
 def _compact(text: str, limit: int = 1200) -> str:
@@ -382,7 +388,7 @@ def control(app: Application, action: str):
     return results[0]
 
 
-def write_analytics(action, business_group, applications, results, started, error=""):
+def write_analytics(action, business_group, applications, results, started, error="", skipped=None):
     path = Path(os.getenv("MULE_ANALYTICS_FILE", "mule-execution-analytics.json"))
     successful = sum(1 for _, ok, _, _ in results if ok)
     failed = max(0, len(applications) - successful)
@@ -409,6 +415,9 @@ def write_analytics(action, business_group, applications, results, started, erro
             "final_state": error,
             "duration_seconds": round(time.monotonic() - started, 1),
         })
+    skipped = skipped or []
+    for item in skipped:
+        rows.append({"api": item["api"], "business_group": business_group, "environment": item["environment"], "region": item["region"], "result": "SKIPPED", "final_state": item["reason"], "duration_seconds": 0.0})
     data = {
         "action": action,
         "business_group": business_group,
@@ -416,6 +425,7 @@ def write_analytics(action, business_group, applications, results, started, erro
         "total": len(applications),
         "successful": successful,
         "failed": failed,
+        "skipped": len(skipped),
         "total_duration_seconds": round(time.monotonic() - started, 1),
         "poll_interval_seconds": POLL_SECONDS,
         "environments": sorted({a.environment for a in applications}, key=str.lower),
@@ -439,17 +449,25 @@ def write_analytics(action, business_group, applications, results, started, erro
     return data
 
 def main() -> int:
-    action=os.getenv("MULE_ACTION","").strip().lower(); region=os.getenv("MULE_REGION","all").strip().lower(); bg=os.getenv("ANYPOINT_BG","").strip(); started=time.monotonic(); applications=[]; results=[]
+    action=os.getenv("MULE_ACTION","").strip().lower(); region=os.getenv("MULE_REGION","all").strip().lower(); bg=os.getenv("ANYPOINT_BG","").strip(); started=time.monotonic(); applications=[]; results=[]; skipped=[]
     if action not in {"start","stop"}: write_analytics(action or "unknown",bg,[],[],started,"MULE_ACTION must be start or stop."); return 2
     if not bg: write_analytics(action,bg,[],[],started,"ANYPOINT_BG is required."); return 2
     try:
-        applications=resolve_targets(parse_inventory(region))
-        print(f"Business Group={bg}; controlling {len(applications)} APIs.",flush=True)
+        requested = parse_inventory(region)
+        applications=resolve_targets(requested)
+        for name, env, target_region in requested:
+            if env.lower() == "auto":
+                continue
+            if not any(a.environment.lower() == env.lower() and a.name.lower() == name.lower() and (target_region in ("auto", "all") or a.region == target_region) for a in applications):
+                skipped.append({"api": name, "environment": env, "region": target_region, "reason": "API not present in runtime; skipped"})
+        if not applications:
+            raise RuntimeError("No configured APIs are currently deployed in their accessible Anypoint environments.")
+        print(f"Business Group={bg}; controlling {len(applications)} APIs; skipping {len(skipped)} missing APIs.",flush=True)
         results = execute(applications, action)
-        data=write_analytics(action,bg,applications,results,started)
+        data=write_analytics(action,bg,applications,results,started,skipped=skipped)
         return 1 if data["failed"] else 0
     except Exception as exc:
-        print(f"::error::{exc}",file=sys.stderr); write_analytics(action,bg,applications,results,started,str(exc)); return 1
+        print(f"::error::{exc}",file=sys.stderr); write_analytics(action,bg,applications,results,started,str(exc),skipped=skipped); return 1
 
 if __name__ == "__main__":
     raise SystemExit(main())
