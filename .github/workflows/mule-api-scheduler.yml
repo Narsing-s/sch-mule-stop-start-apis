@@ -1,6 +1,6 @@
 name: MuleSoft API Auto Start Stop
 
-run-name: "MuleSoft API Scheduler - ${{ inputs.action || 'schedule' }}"
+run-name: "MuleSoft API Scheduler - ${{ inputs.action || 'schedule' }}${{ inputs.api && format(' - {0}', inputs.api) || '' }}"
 
 on:
   push:
@@ -53,7 +53,7 @@ jobs:
     timeout-minutes: 360
     environment: sandbox
     concurrency:
-      group: mule-api-scheduler-${{ inputs.action || 'schedule' }}-${{ inputs.business_group }}-${{ inputs.region || 'all' }}
+      group: mule-api-scheduler-${{ inputs.action || 'schedule' }}-${{ inputs.business_group }}-${{ inputs.region || 'all' }}-${{ inputs.api || 'all' }}
       cancel-in-progress: true
     env:
       ANYPOINT_CLIENT_ID: ${{ secrets.ANYPOINT_CLIENT_ID }}
