@@ -136,6 +136,7 @@ def describe_state(app_id: str) -> tuple[str, str]:
     return desired_state, deployment_state
 
 def control(app: Application, action: str):
+    started = time.monotonic()
     target = "STARTED" if action == "start" else "STOPPED"
     command = "runtime-mgr:application:start" if action == "start" else "runtime-mgr:application:stop"
     deadline = None if TIMEOUT_SECONDS <= 0 else time.monotonic() + TIMEOUT_SECONDS
@@ -144,9 +145,9 @@ def control(app: Application, action: str):
             desired, deployment = describe_state(app.app_id)
             print(f"[{app.group.upper()}/{app.region.upper()}] {app.name} => deployment={deployment}, desired={desired}", flush=True)
             if desired == target and deployment == "APPLIED":
-                return app, True, f"{desired}/{deployment}"
+                return app, True, f"{desired}/{deployment}", time.monotonic() - started
             if deployment == "FAILED":
-                return app, False, f"deployment failed while targeting {target}"
+                return app, False, f"deployment failed while targeting {target}", time.monotonic() - started
             if desired != target:
                 result = cli(command, app.app_id)
                 if result.returncode == 0:
@@ -154,10 +155,10 @@ def control(app: Application, action: str):
                 else:
                     print(f"[WARN] {app.name}: {(result.stderr or result.stdout).strip()}", flush=True)
             if deadline is not None and time.monotonic() >= deadline:
-                return app, False, f"timeout: {desired}/{deployment}; target={target}"
+                return app, False, f"timeout: {desired}/{deployment}; target={target}", time.monotonic() - started
             time.sleep(POLL_SECONDS)
     except Exception as exc:
-        return app, False, str(exc)
+        return app, False, str(exc), time.monotonic() - started
 
 def main() -> int:
     action = os.getenv("MULE_ACTION", "").strip().lower()
@@ -179,16 +180,41 @@ def main() -> int:
     print(f"Using Anypoint environment: {environment}", flush=True)
     applications = resolve_targets(load_targets(group, region))
     failures = 0
+    results = []
+    execution_started = time.monotonic()
     print(f"Waiting until ALL {len(applications)} configured applications are {'STARTED' if action == 'start' else 'STOPPED'} and APPLIED before completing the workflow.", flush=True)
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(12, max(1, len(applications)))) as executor:
         for future in concurrent.futures.as_completed([executor.submit(control, app, action) for app in applications]):
-            app, ok, message = future.result()
+            app, ok, message, duration = future.result()
+            results.append((app, ok, message, duration))
             status = "OK" if ok else "FAILED"
             print(f"[{status}] [{app.group.upper()}/{app.region.upper()}] {app.name}: {message}", flush=True)
             if not ok:
                 failures += 1
     success_count = len(applications) - failures
-    print(f"Completed: total={len(applications)}, success={success_count}, failures={failures}", flush=True)
+    total_duration = time.monotonic() - execution_started
+    print(f"Completed: total={len(applications)}, success={success_count}, failures={failures}, elapsed={total_duration:.1f}s", flush=True)
+
+    summary_file = os.getenv("GITHUB_STEP_SUMMARY")
+    if summary_file:
+        with open(summary_file, "a", encoding="utf-8") as summary:
+            summary.write("\n## Execution Analytics\n")
+            if failures == 0:
+                summary.write(f"**{action.upper()} successful — all {len(applications)} APIs reached the requested state.**\n\n")
+            else:
+                summary.write(f"**{action.upper()} completed with {failures} failure(s).**\n\n")
+            summary.write("| Metric | Value |\n|---|---:|\n")
+            summary.write(f"| Total APIs | {len(applications)} |\n")
+            summary.write(f"| Successful | {success_count} |\n")
+            summary.write(f"| Failed | {failures} |\n")
+            summary.write(f"| Total execution time | {total_duration:.1f}s |\n")
+            summary.write(f"| Poll interval | {POLL_SECONDS}s |\n\n")
+            summary.write("### API-level results\n\n| Group | Region | API | Result | Final state | Duration |\n|---|---|---|---|---|---:|\n")
+            for app, ok, message, duration in sorted(results, key=lambda x: (x[0].group, x[0].region, x[0].name.lower())):
+                result_label = "SUCCESS" if ok else "FAILED"
+                safe_message = message.replace("|", "\\|")
+                summary.write(f"| {app.group.upper()} | {app.region.upper()} | `{app.name}` | {result_label} | {safe_message} | {duration:.1f}s |\n")
+            summary.write("\nAnalytics are based on the actual polling and final CloudHub application state observed by this workflow.\n")
     if failures:
         print("Workflow will remain failed; not all applications reached the requested state.", file=sys.stderr, flush=True)
         return 1
