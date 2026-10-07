@@ -357,3 +357,5 @@ def main() -> int:
     except Exception as exc:
         print(f"::error::{exc}",file=sys.stderr); write_analytics(action,bg,applications,results,started,str(exc)); return 1
 
+if __name__ == "__main__":
+    raise SystemExit(main())
