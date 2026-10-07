@@ -24,8 +24,15 @@ class Application:
     app_id: str
 
 def cli(environment: str, *args: str) -> subprocess.CompletedProcess[str]:
+    """Run Anypoint CLI with explicit Connected App credentials."""
     command = ["anypoint-cli-v4", *args]
+    client_id = os.getenv("ANYPOINT_CLIENT_ID", "").strip()
+    client_secret = os.getenv("ANYPOINT_CLIENT_SECRET", "").strip()
     organization = os.getenv("ANYPOINT_ORG", "").strip()
+    if client_id:
+        command.extend(["--client_id", client_id])
+    if client_secret:
+        command.extend(["--client_secret", client_secret])
     if organization:
         command.extend(["--organization", organization])
     if environment:
@@ -216,21 +223,28 @@ def _application_state(app: Application) -> str:
         raise RuntimeError("application was not present in Anypoint response")
 
     obj = candidates[0]
-    for key in ("status", "state", "desiredState", "desired_status", "applicationStatus", "deploymentStatus"):
+
+    # CloudHub 2.0 can report deployment=APPLIED while desiredState is
+    # STARTED or STOPPED. Prefer desired state so STOP/START is verified
+    # against the application lifecycle state.
+    for key in ("desiredState", "desired_status", "desired", "applicationState"):
         value = obj.get(key)
         if value is not None and str(value).strip():
             return str(value).strip().upper()
-    # Some CLI versions nest deployment/application state.
-    values = []
+
     for key in ("deployment", "application", "runtime"):
         child = obj.get(key)
         if isinstance(child, dict):
-            for state_key in ("status", "state", "desiredState", "desired_status"):
+            for state_key in ("desiredState", "desired_status", "desired", "state", "status"):
                 value = child.get(state_key)
                 if value is not None and str(value).strip():
-                    values.append(str(value).strip().upper())
-    if values:
-        return values[0]
+                    return str(value).strip().upper()
+
+    for key in ("state", "status", "applicationStatus", "deploymentStatus"):
+        value = obj.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip().upper()
+
     return "UNKNOWN"
 
 
@@ -256,7 +270,7 @@ def control(app: Application, action: str):
     while time.monotonic() < deadline:
         try:
             last = _application_state(app)
-            print("[%s] %s state=%s (before=%s)" % (app.name, last, before, before), flush=True)
+            print("[%s] %s state=%s (before=%s)" % (app.name, last, before), flush=True)
             normalized = last.replace("-", "_").replace(" ", "_").upper()
             if expected == "STARTED" and normalized in {"STARTED", "RUNNING", "DEPLOYED"}:
                 return app, True, last, time.monotonic() - started
