@@ -16,7 +16,7 @@ import time
 
 CONFIG = Path("config/schedules.yml")
 TZ_NAME = "Asia/Kolkata"
-MAX_WAIT_SECONDS = 5 * 60 * 60 + 30 * 60
+HANDOFF_AFTER_SECONDS = 4 * 60 * 60 + 45 * 60
 
 text = CONFIG.read_text(encoding="utf-8")
 tz_match = re.search(r'^\s*timezone:\s*["\']?([^\r\n"\']+)["\']?\s*$', text, re.MULTILINE)
@@ -64,16 +64,34 @@ print(f"Business Group: {business_group}")
 print(f"Next action: {action} at {configured_time} IST ({target:%Y-%m-%d %H:%M:%S})")
 print(f"Seconds until action: {seconds}")
 
-if seconds > MAX_WAIT_SECONDS:
-    print(
-        f"Next action is {seconds / 3600:.2f}h away, beyond the GitHub-hosted runner safe window. "
-        "Ending this run cleanly; no handoff workflow will be created."
-    )
-    with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
-        out.write("handoff=false\\n")
-        out.write(f"business_group={business_group}\\n")
-        out.write("action=deferred\\n")
-        out.write(f"configured_time={configured_time}\\n")
+def dispatch_next_cycle() -> None:
+    token = os.getenv("GITHUB_TOKEN", "").strip()
+    repository = os.getenv("GITHUB_REPOSITORY", "").strip()
+    server = os.getenv("GITHUB_SERVER_URL", "https://github.com").rstrip("/")
+    if not token or not repository:
+        raise SystemExit("GITHUB_TOKEN/GITHUB_REPOSITORY unavailable for scheduler handoff.")
+    import json
+    import urllib.request
+    if server == "https://github.com":
+        url = f"https://api.github.com/repos/{repository}/actions/workflows/mule-api-scheduler.yml/dispatches"
+    else:
+        url = f"{server}/api/v3/repos/{repository}/actions/workflows/mule-api-scheduler.yml/dispatches"
+    payload = json.dumps({"ref":"main","inputs":{"action":"schedule","group":"all","region":"all","business_group":business_group}}).encode("utf-8")
+    request = urllib.request.Request(url,data=payload,method="POST",headers={"Accept":"application/vnd.github+json","Authorization":f"Bearer {token}","X-GitHub-Api-Version":"2022-11-28","Content-Type":"application/json","User-Agent":"sch-mule-stop-start-apis-scheduler"})
+    with urllib.request.urlopen(request,timeout=30) as response:
+        if response.status not in (200,201,204):
+            raise SystemExit(f"workflow_dispatch returned HTTP {response.status}")
+    print("Queued next scheduler cycle with workflow_dispatch.",flush=True)
+    with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as out:
+        out.write("handoff=true\n")
+        out.write(f"business_group={business_group}\n")
+        out.write("action=\n")
+        out.write("configured_time=\n")
+
+if seconds > HANDOFF_AFTER_SECONDS:
+    print(f"Next action is {seconds / 3600:.2f}h away. Waiting {HANDOFF_AFTER_SECONDS / 3600:.2f}h, then handing off to a fresh workflow run.")
+    time.sleep(HANDOFF_AFTER_SECONDS)
+    dispatch_next_cycle()
     raise SystemExit(0)
 
 with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
