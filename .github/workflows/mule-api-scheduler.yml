@@ -82,7 +82,7 @@ jobs:
             date -u
             TZ=Asia/Kolkata date
             cat config/schedules.yml
-            python3 scripts/schedule_check.py config/schedules.yml
+            python3 scripts/schedule_check.py config/schedules.yml "$SCHEDULE"
             action="$(cat /tmp/mule-scheduler-action)"
             if [[ "$action" == "none" ]]; then
               echo "No configured lifecycle action is due. Skipping."
